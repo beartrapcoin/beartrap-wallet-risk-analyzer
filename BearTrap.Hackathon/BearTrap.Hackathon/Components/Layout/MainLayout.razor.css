@@ -1,0 +1,65 @@
+.page {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+main {
+    flex: 1;
+}
+
+.bt-footer {
+    margin-top: 3rem;
+    padding: 0.75rem 1rem 1.25rem;
+    text-align: center;
+    font-size: 0.825rem;
+    opacity: 0.72;
+    line-height: 1.5;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.bt-footer a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.bt-footer a:hover,
+.bt-footer a:focus-visible {
+    text-decoration: underline;
+}
+
+.bt-footer-separator {
+    opacity: 0.8;
+}
+
+@media (max-width: 576px) {
+    .bt-footer {
+        margin-top: 2.5rem;
+        font-size: 0.8rem;
+        gap: 0.25rem;
+    }
+}
+
+#blazor-error-ui {
+    background: lightyellow;
+    bottom: 0;
+    box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.2);
+    display: none;
+    left: 0;
+    padding: 0.6rem 1.25rem 0.7rem 1.25rem;
+    position: fixed;
+    width: 100%;
+    z-index: 1000;
+}
+
+    #blazor-error-ui .dismiss {
+        cursor: pointer;
+        position: absolute;
+        right: 0.75rem;
+        top: 0.5rem;
+    }

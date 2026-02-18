@@ -1,0 +1,1838 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@implements IAsyncDisposable
+
+@using BearTrap.Hackathon.Domain
+@using BearTrap.Hackathon.Application.Services
+@using BearTrap.Hackathon.Services.DataSources
+
+@inject IFourMemeSource FourMemeSource
+@inject IFourMemeMainListSource FourMemeMainListSource
+@inject RiskAnalyzer RiskAnalyzer
+@inject Microsoft.JSInterop.IJSRuntime JSRuntime
+
+<PageTitle>BearTrap Hackathon</PageTitle>
+
+<div class="page-wrapper">
+    <!-- Centered Panel Container -->
+    <div class="main-panel">
+        <!-- Header Area -->
+        <div class="header-area">
+            <h1 class="dash-title">BearTrap Token Risk Analysis</h1>
+            <div class="dash-subtitle">Hackathon Edition</div>
+            
+            <div class="controls-grid">
+                <!-- Search Bar (Pill Style) -->
+                <div class="search-wrapper">
+                    <span class="search-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" width="18" height="18" xmlns="http://www.w3.org/2000/svg">
+                            <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                            <line x1="16.65" y1="16.65" x2="21" y2="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    </span>
+                    <input type="text" 
+                           class="search-pill" 
+                           placeholder="Search by name, symbol, token or creator..."
+                           @bind="_searchQuery"
+                           @bind:event="oninput" />
+                </div>
+            </div>
+            <div class="search-note">
+                Wallet-based search is being refined.<br />
+                Advanced wallet intelligence coming soon.
+            </div>
+        </div>
+        
+        <!-- Token List Content -->
+        <div class="tokens-content">
+            @if (_loading)
+            {
+                <div class="loading-state">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-3">Loading tokens...</p>
+                </div>
+            }
+            else if (FilteredResults.Count == 0)
+            {
+                <div class="empty-state">
+                    <p>@(_results.Count == 0 ? "No tokens found." : "No tokens match your search.")</p>
+                </div>
+            }
+            else
+            {
+                <div class="token-grid">
+                    @foreach (var row in FilteredResults)
+                    {
+                        <div class="tcard">
+                            <!-- Top Section: Avatar + Metadata | Gauge + Risk Pill -->
+                            <div class="tcard-top">
+                                <div class="tleft">
+                                    <img class="timg"
+                                         src="@(string.IsNullOrWhiteSpace(row.Token.ImageUrl) ? "/mock-images/token-placeholder.svg" : row.Token.ImageUrl)"
+                                         alt="@row.Token.Name"
+                                         loading="lazy"
+                                         onerror="this.src='/mock-images/token-placeholder.svg';" />
+                                    
+                                    <div class="tmeta">
+                                        <div class="tname-row">
+                                            <div class="tname">@row.Token.Name</div>
+                                            <span class="tchain-pill">BNB</span>
+                                        </div>
+                                        <div class="addr-stack">
+                                            <div class="addr-row">
+                                                <span class="addr-label">Token</span>
+                                                <a href="#"
+                                                   class="addr-value"
+                                                   @onclick:preventDefault="true"
+                                                   @onclick="() => CopyToClipboard(row.Token.Address)"
+                                                   title="Copy token address">@Short(row.Token.Address)</a>
+                                                <button type="button"
+                                                        class="addr-copy" 
+                                                        @onclick="() => CopyToClipboard(row.Token.Address)"
+                                                        title="Copy token address">⧉</button>
+                                            </div>
+                                            <div class="addr-row">
+                                                <span class="addr-label">Creator</span>
+                                                <a href="#"
+                                                   class="addr-value"
+                                                   @onclick:preventDefault="true"
+                                                   @onclick="() => CopyToClipboard(row.Token.Creator)"
+                                                   title="Copy creator address">@Short(row.Token.Creator)</a>
+                                                <button type="button"
+                                                        class="addr-copy" 
+                                                        @onclick="() => CopyToClipboard(row.Token.Creator)"
+                                                        title="Copy creator address">⧉</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="tright">
+                                    @{
+                                        var scorePercent = row.Report.Score;
+                                    }
+                                    <div class="risk-gauge">
+                                        <svg class="gauge-svg" viewBox="0 0 120 70" xmlns="http://www.w3.org/2000/svg">
+                                            <defs>
+                                                <!-- Gradient for low risk -->
+                                                <linearGradient id="gradient-low" x1="0%" y1="0%" x2="100%" y2="0%">
+                                                    <stop offset="0%" style="stop-color:#2fb67c;stop-opacity:1" />
+                                                    <stop offset="100%" style="stop-color:#22c55e;stop-opacity:1" />
+                                                </linearGradient>
+                                                <!-- Gradient for medium risk -->
+                                                <linearGradient id="gradient-med" x1="0%" y1="0%" x2="100%" y2="0%">
+                                                    <stop offset="0%" style="stop-color:#f59e0b;stop-opacity:1" />
+                                                    <stop offset="100%" style="stop-color:#e89b2f;stop-opacity:1" />
+                                                </linearGradient>
+                                                <!-- Gradient for high risk -->
+                                                <linearGradient id="gradient-high" x1="0%" y1="0%" x2="100%" y2="0%">
+                                                    <stop offset="0%" style="stop-color:#dc5a55;stop-opacity:1" />
+                                                    <stop offset="100%" style="stop-color:#e06b67;stop-opacity:1" />
+                                                </linearGradient>
+                                                <filter id="gauge-shadow" x="-20%" y="-20%" width="140%" height="140%">
+                                                    <feGaussianBlur in="SourceAlpha" stdDeviation="1.5"/>
+                                                    <feOffset dx="0" dy="1" result="offsetblur"/>
+                                                    <feComponentTransfer>
+                                                        <feFuncA type="linear" slope="0.12"/>
+                                                    </feComponentTransfer>
+                                                    <feMerge>
+                                                        <feMergeNode/>
+                                                        <feMergeNode in="SourceGraphic"/>
+                                                    </feMerge>
+                                                </filter>
+                                            </defs>
+                                            <!-- Background arc -->
+                                            <path class="gauge-bg"
+                                                  d="M10,60 A50,50 0 0 1 110,60"
+                                                  pathLength="100"
+                                                  fill="none"
+                                                  stroke="rgba(15, 23, 42, 0.10)"
+                                                  stroke-width="15"
+                                                  stroke-linecap="round"/>
+                                            <!-- Foreground arc (progress) - single continuous segment -->
+                                            <path class="gauge-fg"
+                                                  d="M10,60 A50,50 0 0 1 110,60"
+                                                  pathLength="100"
+                                                  fill="none"
+                                                  stroke="url(#gradient-@(scorePercent <= 30 ? "low" : scorePercent <= 60 ? "med" : "high"))"
+                                                  stroke-width="15"
+                                                  stroke-linecap="round"
+                                                  style="--p:@scorePercent"
+                                                  filter="url(#gauge-shadow)"/>
+                                        </svg>
+                                        <div class="gauge-content">
+                                            <div class="gauge-num">@row.Report.Score</div>
+                                            <div class="gauge-label gauge-label-@GetScoreSeverity(row.Report.Score)">@GetRiskLabel(row.Report.Score)</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Bottom Strip: Flags -->
+                            <div class="tcard-bottom" id="@GetFlagsContainerId(row.Token.Address)" data-flags-token-key="@NormalizeTokenKey(row.Token.Address)">
+                                @{
+                                    var displayFlags = row.Report.DisplayFlags.ToList();
+                                    var visibleFlagsCount = GetVisibleFlagsCount(row.Token.Address, displayFlags.Count);
+                                    var hiddenFlags = displayFlags.Skip(visibleFlagsCount).ToList();
+                                    var hiddenFlagsCount = hiddenFlags.Count;
+                                    var isFlagsPopoverOpen = IsFlagsPopoverOpen(row.Token.Address);
+                                    var flagsPopoverContainerId = GetFlagsPopoverContainerId(row.Token.Address);
+                                }
+                                
+                                @if (displayFlags.Any())
+                                {
+                                    @foreach (var flag in displayFlags)
+                                    {
+                                        <span class="tchip tchip-flag flag-chip" title="@flag.Code: @flag.Label (+@flag.Points pts)">
+                                            @flag.Label
+                                        </span>
+                                    }
+                                    
+                                    @if (hiddenFlagsCount > 0)
+                                    {
+                                        <div class="flags-more-wrap" id="@flagsPopoverContainerId">
+                                            <button type="button"
+                                                    class="tchip tchip-more tchip-button more-chip"
+                                                    title="Show other risk flags"
+                                                    aria-expanded="@isFlagsPopoverOpen"
+                                                    aria-haspopup="true"
+                                                    @onclick="() => ToggleFlagsPopover(row.Token.Address)">
+                                                +@hiddenFlagsCount
+                                            </button>
+
+                                            @if (isFlagsPopoverOpen)
+                                            {
+                                                <div class="flags-popover" role="dialog" aria-label="Other risk flags" @onclick:stopPropagation="true">
+                                                    <div class="flags-popover-title">Other risk flags</div>
+                                                    <div class="flags-list">
+                                                        @foreach (var hiddenFlag in hiddenFlags)
+                                                        {
+                                                            <div class="flags-popover-item" title="@hiddenFlag.Code">
+                                                                <span class="flags-popover-label">@hiddenFlag.Label</span>
+                                                                @if (hiddenFlag.Points > 0)
+                                                                {
+                                                                    <span class="flags-popover-points">+@hiddenFlag.Points</span>
+                                                                }
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                    <button type="button" class="flags-popover-close" @onclick="CloseFlagsPopover">Close</button>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                }
+                                else
+                                {
+                                    <span class="tchip tchip-clean">✓ Clean</span>
+                                }
+                            </div>
+                            
+                            <!-- AI Analysis Button -->
+                            <div class="tcard-ai-section">
+                                <button type="button" 
+                                        class="btn-ai-analysis" 
+                                        @onclick="@(() => OpenAiModal(row.Token, row.Report))">
+                                    <span class="ai-icon">🤖</span>
+                                    <span class="ai-label">AI Analysis</span>
+                                    <span class="ai-badge">Beta</span>
+                                </button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<!-- AI Analysis Modal -->
+@if (_showAiModal)
+{
+    <div class="modal fade show" id="aiAnalysisModal" tabindex="-1" style="display: block; position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1050;" @onclick="CloseAiModal">
+        <div class="modal-dialog modal-dialog-centered" @onclick:stopPropagation="true">
+            <div class="modal-content ai-modal-content">
+                <div class="modal-header ai-modal-header">
+                    <h5 class="modal-title">
+                        <span class="ai-modal-icon">🧠</span>
+                        AI Risk Insight
+                        <span class="ai-modal-beta">Beta</span>
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="CloseAiModal"></button>
+                </div>
+                <div class="modal-body ai-modal-body">
+                    @if (_aiLoading)
+                    {
+                        <div class="ai-loading-container">
+                            <div class="ai-spinner">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Analyzing...</span>
+                                </div>
+                            </div>
+                            <p class="ai-loading-text">Analyzing token patterns...</p>
+                        </div>
+                    }
+                    else if (_aiAnalysisResult != null)
+                    {
+                        <div class="ai-results">
+                            <div class="ai-result-item">
+                                <span class="ai-result-label">Pattern similarity:</span>
+                                <span class="ai-result-value ai-value-@_aiAnalysisResult.PatternSimilaritySeverity">@_aiAnalysisResult.PatternSimilarity</span>
+                            </div>
+                            <div class="ai-result-item">
+                                <span class="ai-result-label">Behavioral anomaly:</span>
+                                <span class="ai-result-value ai-value-@_aiAnalysisResult.BehavioralAnomalySeverity">@_aiAnalysisResult.BehavioralAnomaly</span>
+                            </div>
+                            <div class="ai-result-item">
+                                <span class="ai-result-label">Confidence score:</span>
+                                <span class="ai-result-value ai-value-experimental">@_aiAnalysisResult.ConfidenceScore</span>
+                            </div>
+                            
+                            <div class="ai-disclaimer">
+                                <small class="text-muted">
+                                    <span class="disclaimer-icon">ℹ️</span>
+                                    AI module running in preview mode (mocked data for demo purposes).
+                                </small>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1040;" @onclick="CloseAiModal"></div>
+}
+
+<style>
+    /* ========================================
+       BEARTRAP THEME TOKENS
+       ======================================== */
+    :root {
+        --bt-ink-0: #14110c;
+        --bt-ink-1: #2b2418;
+        --bt-ink-2: #5d5242;
+
+        --bt-parch-0: #f3ead7;
+        --bt-parch-1: #ead6b2;
+
+        --bt-surface-0: #fffaf0;
+        --bt-surface-1: #f4e5c7;
+        --bt-surface-2: #efd7ad;
+
+        --bt-gold-0: #f2c14e;
+        --bt-gold-1: #c9921a;
+        --bt-gold-glow: rgba(201,146,26,0.25);
+
+        --bt-border: rgba(20,17,12,0.16);
+        --bt-border-soft: rgba(20,17,12,0.10);
+
+        --bt-shadow: 0 18px 52px rgba(20,17,12,0.16);
+        --bt-shadow-hover: 0 26px 74px rgba(20,17,12,0.22);
+
+        --bt-risk-low: #2e7d57;
+        --bt-risk-med: #d6a02a;
+        --bt-risk-high: #c6533d;
+    }
+
+    /* ========================================
+       PAGE WRAPPER (Parchment with Depth)
+       ======================================== */
+    .page-wrapper {
+        background: radial-gradient(900px at 12% -10%, rgba(242,193,78,0.22) 0%, transparent 55%),
+                    radial-gradient(900px at 95% 0%, rgba(201,146,26,0.18) 0%, transparent 55%),
+                    radial-gradient(1200px at 50% 110%, rgba(20,17,12,0.10) 0%, transparent 60%),
+                    linear-gradient(180deg, var(--bt-parch-0) 0%, var(--bt-parch-1) 100%);
+        min-height: 100vh;
+        padding: 28px 16px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        color: var(--bt-ink-0);
+    }
+    
+    /* ========================================
+       MAIN PANEL (Glass Parchment - Stronger Separation)
+       ======================================== */
+    .main-panel {
+        max-width: 1240px;
+        margin: 0 auto;
+        background: linear-gradient(135deg, rgba(255,250,240,0.72) 0%, rgba(244,229,199,0.62) 100%);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border-radius: 22px;
+        box-shadow: 0 28px 84px rgba(20,17,12,0.18);
+        padding: 26px;
+        border: 1px solid rgba(20,17,12,0.12);
+    }
+    
+    /* ========================================
+       HEADER AREA
+       ======================================== */
+    .header-area {
+        margin-bottom: 18px;
+    }
+    
+    /* ========================================
+       AI ANALYSIS SECTION
+       ======================================== */
+    .tcard-ai-section {
+        padding: 8px 0 0 0;
+        margin-top: 8px;
+        border-top: 1px solid rgba(20,17,12,0.08);
+        position: relative;
+        z-index: 2;
+    }
+    
+    .btn-ai-analysis {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        padding: 7px 12px;
+        background: linear-gradient(145deg, rgba(242,193,78,0.12), rgba(255,250,240,0.45));
+        border: 1px solid rgba(201,146,26,0.22);
+        border-radius: 9px;
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: var(--bt-ink-1);
+        cursor: pointer;
+        transition: all 0.2s ease;
+        box-shadow: inset 0 1px 2px rgba(255,255,255,0.4);
+        position: relative;
+        z-index: 3;
+    }
+    
+    .btn-ai-analysis:hover {
+        background: linear-gradient(145deg, rgba(242,193,78,0.18), rgba(255,250,240,0.55));
+        border-color: rgba(201,146,26,0.32);
+        transform: translateY(-1px);
+        box-shadow: 0 2px 8px rgba(201,146,26,0.15), inset 0 1px 2px rgba(255,255,255,0.4);
+        color: var(--bt-ink-0);
+    }
+    
+    .btn-ai-analysis:active {
+        transform: translateY(0);
+        box-shadow: inset 0 1px 2px rgba(20,17,12,0.08);
+    }
+    
+    .ai-icon {
+        font-size: 0.9375rem;
+        line-height: 1;
+        opacity: 0.75;
+    }
+    
+    .ai-label {
+        flex: 1;
+        letter-spacing: -0.01em;
+    }
+    
+    .ai-badge {
+        font-size: 0.5625rem;
+        font-weight: 700;
+        padding: 2px 7px;
+        background: rgba(201,146,26,0.18);
+        border: 1px solid rgba(201,146,26,0.25);
+        border-radius: 6px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--bt-ink-2);
+    }
+    
+    /* ========================================
+       AI MODAL STYLES
+       ======================================== */
+    .ai-modal-content {
+        border: 1px solid rgba(201,146,26,0.20);
+        border-radius: 16px;
+        box-shadow: 0 20px 60px rgba(20,17,12,0.25);
+        overflow: hidden;
+        background: linear-gradient(145deg, var(--bt-surface-0), var(--bt-surface-1));
+    }
+    
+    .ai-modal-header {
+        background: linear-gradient(135deg, rgba(242,193,78,0.14) 0%, rgba(255,250,240,0.45) 100%);
+        border-bottom: 1px solid rgba(201,146,26,0.22);
+        padding: 18px 24px;
+    }
+    
+    .ai-modal-header .modal-title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 1.375rem;
+        font-weight: 700;
+        color: var(--bt-ink-0);
+    }
+    
+    .ai-modal-icon {
+        font-size: 1.375rem;
+        line-height: 1;
+        opacity: 0.8;
+    }
+    
+    .ai-modal-beta {
+        font-size: 0.625rem;
+        font-weight: 700;
+        padding: 3px 8px;
+        background: rgba(201,146,26,0.18);
+        border: 1px solid rgba(201,146,26,0.25);
+        border-radius: 6px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--bt-ink-2);
+    }
+    
+    .ai-modal-body {
+        padding: 28px 24px;
+        min-height: 200px;
+    }
+    
+    .ai-loading-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 180px;
+        gap: 16px;
+    }
+    
+    .ai-spinner .spinner-border {
+        width: 3rem;
+        height: 3rem;
+        border-width: 0.3rem;
+        color: var(--bt-gold-1);
+    }
+    
+    .ai-loading-text {
+        font-size: 1rem;
+        color: var(--bt-ink-2);
+        margin: 0;
+        font-weight: 500;
+    }
+    
+    .ai-results {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+    
+    .ai-result-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 14px 16px;
+        background: linear-gradient(145deg, rgba(255,250,240,0.55) 0%, rgba(244,229,199,0.35) 100%);
+        border-radius: 10px;
+        border: 1px solid rgba(20,17,12,0.12);
+        box-shadow: inset 0 1px 2px rgba(255,255,255,0.3);
+    }
+    
+    .ai-result-label {
+        font-size: 0.9375rem;
+        font-weight: 600;
+        color: var(--bt-ink-1);
+    }
+    
+    .ai-result-value {
+        font-size: 0.9375rem;
+        font-weight: 700;
+        padding: 4px 12px;
+        border-radius: 6px;
+        border: 1px solid transparent;
+    }
+    
+    .ai-value-low {
+        background: rgba(46,125,87,0.15);
+        color: #2e7d57;
+        border-color: rgba(46,125,87,0.20);
+    }
+    
+    .ai-value-medium {
+        background: rgba(214,160,42,0.15);
+        color: #d6a02a;
+        border-color: rgba(214,160,42,0.20);
+    }
+    
+    .ai-value-high {
+        background: rgba(198,83,61,0.15);
+        color: #c6533d;
+        border-color: rgba(198,83,61,0.20);
+    }
+    
+    .ai-value-experimental {
+        background: rgba(201,146,26,0.15);
+        color: var(--bt-gold-1);
+        border: 1px solid rgba(201,146,26,0.20);
+    }
+    
+    .ai-disclaimer {
+        margin-top: 8px;
+        padding: 12px;
+        background: rgba(242,193,78,0.08);
+        border-radius: 8px;
+        border-left: 3px solid rgba(201,146,26,0.30);
+    }
+    
+    .ai-disclaimer small {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.8125rem;
+        line-height: 1.5;
+    }
+    
+    .disclaimer-icon {
+        font-size: 1rem;
+        line-height: 1;
+    }
+    
+    .modal-backdrop {
+        background-color: rgba(0, 0, 0, 0.5);
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 1040;
+    }
+    
+    .modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 1050;
+        overflow: auto;
+        outline: 0;
+    }
+    
+    .modal-dialog {
+        position: relative;
+        width: auto;
+        margin: 1.75rem auto;
+        pointer-events: none;
+    }
+    
+    .modal-dialog > * {
+        pointer-events: auto;
+    }
+    
+    .dash-title {
+        font-size: 2.375rem;
+        font-weight: 800;
+        color: var(--bt-ink-0);
+        margin: 0;
+        letter-spacing: -0.5px;
+        border: 2px solid var(--bt-ink-0);
+        padding: 12px 20px;
+        border-radius: 8px;
+        display: inline-block;
+        box-sizing: border-box;
+    }
+
+    .dash-subtitle {
+        margin-top: 7px;
+        margin-bottom: 16px;
+        font-size: 0.95rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        color: #d4a017;
+        text-shadow: 0 1px 6px rgba(201,146,26,0.20);
+    }
+    
+     /* ========================================
+         CONTROLS GRID
+         ======================================== */
+    .controls-grid {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 16px;
+        align-items: center;
+    }
+    
+    .search-wrapper {
+        flex: 1 1 auto;
+        min-width: 300px;
+        position: relative;
+        display: flex;
+        align-items: center;
+        padding: 0;
+        line-height: normal;
+    }
+
+    .search-icon {
+        position: absolute;
+        left: 18px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 18px;
+        height: 18px;
+        pointer-events: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0;
+        color: #bfa14a;
+        opacity: 0.9;
+    }
+    
+    .search-pill {
+        width: 100%;
+        height: 46px;
+        border-radius: 14px;
+        border: 1px solid var(--bt-border-soft);
+        padding: 0 18px 0 48px;
+        font-size: 0.9375rem;
+        background: rgba(255,250,240,0.90);
+        box-shadow: 0 6px 18px rgba(20,17,12,0.08);
+        transition: all 0.2s ease;
+        color: var(--bt-ink-1);
+    }
+    
+    .search-pill::placeholder {
+        color: var(--bt-ink-2);
+    }
+    
+    .search-pill:focus {
+        outline: none;
+        border-color: rgba(201,146,26,0.55);
+        box-shadow: 0 6px 20px rgba(20,17,12,0.10), 0 0 0 4px rgba(242,193,78,0.28);
+        background: var(--bt-surface-0);
+        transform: translateY(-1px);
+    }
+
+    .search-note {
+        margin-top: 7px;
+        font-size: 0.75rem;
+        font-weight: 500;
+        line-height: 1.4;
+        color: var(--bt-ink-2);
+        opacity: 0.75;
+        background: none;
+        border: none;
+        box-shadow: none;
+    }
+    
+    /* ========================================
+       TOKENS CONTENT AREA
+       ======================================== */
+    .tokens-content {
+        margin-top: 18px;
+    }
+    
+    .loading-state, .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: var(--bt-ink-2);
+        font-size: 0.9375rem;
+    }
+    
+    /* ========================================
+       TOKEN GRID (2 columns)
+       ======================================== */
+    .token-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px;
+    }
+    
+    /* ========================================
+       TOKEN CARD (Higher Contrast + Gold Hover)
+       ======================================== */
+    .tcard {
+        background: linear-gradient(145deg, var(--bt-surface-0), var(--bt-surface-1));
+        border-radius: 16px;
+        box-shadow: 0 12px 34px rgba(20,17,12,0.13);
+        padding: 12px;
+        transition: all 0.25s ease;
+        border: 1px solid var(--bt-border);
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .tcard::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(700px at 20% 0%, rgba(255,255,255,0.55) 0%, transparent 45%);
+        pointer-events: none;
+        z-index: 0;
+    }
+
+    .tcard > * {
+        position: relative;
+        z-index: 1;
+    }
+    
+    .tcard:hover {
+        box-shadow: 0 18px 48px rgba(20,17,12,0.18);
+        transform: translateY(-2px);
+        border-color: rgba(201,146,26,0.30);
+    }
+    
+    /* ========================================
+       TOP SECTION (Avatar + Metadata | Gauge)
+       ======================================== */
+    .tcard-top {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 10px;
+        position: relative;
+        padding-right: 136px;
+        min-height: 78px;
+    }
+    
+    .tleft {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex: 1;
+        min-width: 0;
+    }
+    
+    .timg {
+        width: 88px;
+        height: 88px;
+        min-width: 88px;
+        border-radius: 18px;
+        object-fit: cover;
+        background: linear-gradient(135deg, var(--bt-surface-0) 0%, var(--bt-surface-1) 100%);
+        box-shadow: 0 6px 18px rgba(20,17,12,0.16);
+        border: 1px solid var(--bt-border-soft);
+        transition: box-shadow 0.2s ease;
+    }
+    
+    .timg:hover {
+        box-shadow: 0 8px 22px rgba(20,17,12,0.20);
+    }
+    
+    .tmeta {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+    
+    .tname-row {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+    }
+    
+    .tname {
+        font-size: 1rem;
+        font-weight: 700;
+        color: var(--bt-ink-0);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    
+    .tchain-pill {
+        font-size: 0.6875rem;
+        font-weight: 700;
+        color: var(--bt-ink-2);
+        padding: 3px 7px;
+        background: rgba(20,17,12,0.06);
+        border-radius: 6px;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+    }
+    
+    .addr-stack {
+        display: inline-flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+        max-width: 360px;
+    }
+
+    .addr-row {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        width: fit-content;
+        max-width: 100%;
+        background: rgba(255,255,255,0.35);
+        border: 1px solid rgba(201,146,26,0.22);
+        border-radius: 10px;
+        padding: 5px 10px;
+    }
+
+    .addr-label {
+        min-width: 54px;
+        font-size: 0.69rem;
+        font-weight: 600;
+        color: var(--bt-ink-2);
+        letter-spacing: 0.01em;
+        line-height: 1.2;
+    }
+
+    .addr-value {
+        min-width: 0;
+        flex: 0 1 auto;
+        max-width: 220px;
+        font-size: 0.78rem;
+        font-weight: 500;
+        color: var(--bt-ink-1);
+        font-family: ui-monospace, 'Cascadia Code', 'Courier New', monospace;
+        text-decoration: none;
+        border-bottom: none;
+        transition: color 0.2s ease;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        line-height: 1.2;
+    }
+
+    .addr-value:hover,
+    .addr-value:focus-visible {
+        color: var(--bt-ink-0);
+        text-decoration: none;
+        border-bottom: none;
+        outline: none;
+    }
+
+    .addr-copy {
+        width: 22px;
+        height: 22px;
+        padding: 0;
+        font-size: 0.8125rem;
+        background: rgba(255,250,240,0.68);
+        border: 1px solid var(--bt-border-soft);
+        border-radius: 8px;
+        cursor: pointer;
+        transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--bt-ink-2);
+        flex-shrink: 0;
+    }
+
+    .addr-copy:hover,
+    .addr-copy:focus-visible {
+        background: rgba(242,193,78,0.14);
+        border-color: rgba(201,146,26,0.34);
+        color: var(--bt-ink-0);
+        outline: none;
+    }
+    
+    /* ========================================
+       RIGHT SECTION (Gauge + Risk Pill)
+       ======================================== */
+    .tright {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        flex-shrink: 0;
+        position: absolute;
+        top: 16px;
+        right: 16px;
+    }
+    
+    /* ========================================
+       PREMIUM SVG GAUGE (BearTrap Colors)
+       ======================================== */
+    .risk-gauge {
+        position: relative;
+        width: 120px;
+        height: 70px;
+    }
+    
+    .gauge-svg {
+        width: 100%;
+        height: 100%;
+        filter: drop-shadow(0 4px 8px rgba(20,17,12,0.14));
+    }
+    
+    .gauge-bg {
+        shape-rendering: geometricPrecision;
+        stroke-dasharray: 100;
+        stroke-dashoffset: 0;
+        stroke: rgba(20,17,12,0.18);
+    }
+    
+    .gauge-fg {
+        shape-rendering: geometricPrecision;
+        stroke-dasharray: 100;
+        stroke-dashoffset: calc(100 - var(--p));
+        transition: stroke-dashoffset 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    
+    .gauge-content {
+        position: absolute;
+        top: 52%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        text-align: center;
+        pointer-events: none;
+    }
+    
+    .gauge-num {
+        font-size: 1.5rem;
+        font-weight: 750;
+        line-height: 1;
+        color: var(--bt-ink-0);
+        letter-spacing: -0.8px;
+        margin-bottom: 1px;
+    }
+    
+    .gauge-label {
+        font-size: 0.75rem;
+        font-weight: 600;
+        line-height: 1;
+        letter-spacing: 0.01em;
+    }
+    
+    .gauge-label-info {
+        color: var(--bt-risk-low);
+    }
+    
+    .gauge-label-warn {
+        color: var(--bt-risk-med);
+    }
+    
+    .gauge-label-danger {
+        color: var(--bt-risk-high);
+    }
+    
+    /* Risk pill styles removed - now integrated into gauge */
+    
+    /* ========================================
+       BOTTOM STRIP (Creator + Flags)
+       ======================================== */
+    .tcard-bottom {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        flex-wrap: nowrap;
+        overflow-x: hidden;
+        overflow-y: visible;
+        padding-top: 8px;
+        border-top: 1px solid rgba(20,17,12,0.08);
+    }
+
+    .flag-chip,
+    .flags-more-wrap,
+    .more-chip {
+        flex: 0 0 auto;
+    }
+    
+    .tchip {
+        padding: 4px 8px;
+        border-radius: 9px;
+        font-size: 0.66rem;
+        font-weight: 600;
+        white-space: nowrap;
+        transition: all 0.15s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+    }
+    
+    .tchip-flag {
+        background: rgba(255,250,240,0.55);
+        color: var(--bt-ink-2);
+        border: 1px solid rgba(20,17,12,0.14);
+    }
+    
+    .tchip-more {
+        background: rgba(255,250,240,0.55);
+        color: var(--bt-ink-2);
+        border: 1px solid rgba(20,17,12,0.14);
+    }
+
+    .tchip-button {
+        cursor: pointer;
+        background: rgba(255,250,240,0.7);
+    }
+
+    .tchip-button:hover {
+        background: rgba(255,250,240,0.92);
+        border-color: rgba(201,146,26,0.45);
+        color: var(--bt-ink-1);
+    }
+
+    .tchip-button:focus-visible {
+        outline: none;
+        border-color: rgba(201,146,26,0.58);
+        box-shadow: 0 0 0 3px rgba(242,193,78,0.26);
+    }
+
+    .flags-more-wrap {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+    }
+
+    .flags-popover {
+        position: absolute;
+        bottom: calc(100% + 8px);
+        right: 0;
+        min-width: 210px;
+        max-width: 290px;
+        max-height: 190px;
+        overflow-y: auto;
+        padding: 10px;
+        border-radius: 12px;
+        border: 1px solid rgba(201,146,26,0.42);
+        background: linear-gradient(145deg, rgba(255,250,240,0.98), rgba(244,229,199,0.95));
+        box-shadow: 0 14px 34px rgba(20,17,12,0.24);
+        z-index: 40;
+    }
+
+    .flags-popover-title {
+        font-size: 0.72rem;
+        font-weight: 700;
+        color: var(--bt-ink-1);
+        margin-bottom: 8px;
+        letter-spacing: 0.01em;
+    }
+
+    .flags-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .flags-popover-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 5px 7px;
+        border-radius: 8px;
+        border: 1px solid rgba(20,17,12,0.10);
+        background: rgba(255,255,255,0.56);
+        color: var(--bt-ink-1);
+        font-size: 0.68rem;
+        font-weight: 600;
+    }
+
+    .flags-popover-label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        min-width: 0;
+    }
+
+    .flags-popover-points {
+        color: var(--bt-risk-high);
+        font-size: 0.66rem;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+
+    .flags-popover-close {
+        margin-top: 8px;
+        width: 100%;
+        border: 1px solid rgba(201,146,26,0.32);
+        border-radius: 8px;
+        padding: 5px 8px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        background: rgba(242,193,78,0.16);
+        color: var(--bt-ink-1);
+        cursor: pointer;
+    }
+
+    .flags-popover-close:hover,
+    .flags-popover-close:focus-visible {
+        background: rgba(242,193,78,0.24);
+        border-color: rgba(201,146,26,0.46);
+        outline: none;
+    }
+    
+    .tchip-clean {
+        background: rgba(46,125,87,0.12);
+        color: var(--bt-risk-low);
+        border: 1px solid rgba(46,125,87,0.18);
+    }
+    
+    .tchip:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 2px 6px rgba(20,17,12,0.12);
+    }
+    
+    /* ========================================
+       COPY TOOLTIP (Gold & Ink)
+       ======================================== */
+    .copy-tooltip {
+        position: fixed;
+        background: linear-gradient(135deg, var(--bt-gold-0), var(--bt-gold-1));
+        color: var(--bt-ink-0);
+        padding: 6px 12px;
+        border-radius: 8px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        pointer-events: none;
+        z-index: 10000;
+        white-space: nowrap;
+        box-shadow: 0 10px 26px rgba(201,146,26,0.28);
+        animation: fadeInOut 800ms ease-in-out;
+    }
+    
+    @@keyframes fadeInOut {
+        0% { opacity: 0; transform: translateY(6px); }
+        20% { opacity: 1; transform: translateY(0); }
+        80% { opacity: 1; transform: translateY(0); }
+        100% { opacity: 0; transform: translateY(-6px); }
+    }
+    
+    /* ========================================
+       RESPONSIVE DESIGN
+       ======================================== */
+    @@media (max-width: 992px) {
+        .token-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+    
+    @@media (max-width: 768px) {
+        .page-wrapper {
+            padding: 12px 8px;
+        }
+        
+        .main-panel {
+            padding: 18px;
+        }
+        
+        .dash-title {
+            font-size: 1.5rem;
+            margin-bottom: 0;
+            padding: 10px 16px;
+        }
+
+        .dash-subtitle {
+            margin-top: 6px;
+            margin-bottom: 14px;
+            font-size: 0.9rem;
+        }
+        
+        .controls-grid {
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .search-wrapper {
+            width: 100%;
+            min-width: 0;
+        }
+        
+        .timg {
+            width: 56px;
+            height: 56px;
+            min-width: 56px;
+        }
+        
+        .tname {
+            font-size: 0.9375rem;
+        }
+
+        .tcard-top {
+            padding-right: 116px;
+            min-height: 76px;
+        }
+        
+        .risk-gauge {
+            width: 100px;
+            height: 58px;
+        }
+        
+        .gauge-num {
+            font-size: 1.25rem;
+        }
+        
+        .gauge-label {
+            font-size: 0.6875rem;
+        }
+        
+        .tcard-bottom {
+            flex-wrap: nowrap;
+        }
+        
+        .tchip {
+            font-size: 0.625rem;
+            padding: 4px 8px;
+        }
+        
+        .tcard-ai-section {
+            padding: 8px 0 0 0;
+        }
+        
+        .btn-ai-analysis {
+            font-size: 0.75rem;
+            padding: 8px 12px;
+        }
+        
+        .ai-icon {
+            font-size: 0.875rem;
+        }
+        
+        .ai-badge {
+            font-size: 0.5rem;
+            padding: 2px 6px;
+        }
+        
+        .ai-modal-content {
+            margin: 12px;
+        }
+        
+        .ai-modal-header {
+            padding: 14px 18px;
+        }
+        
+        .ai-modal-header .modal-title {
+            font-size: 1.125rem;
+        }
+        
+        .ai-modal-body {
+            padding: 20px 18px;
+        }
+    }
+
+    @@media (max-width: 480px) {
+        .tright {
+            transform: scale(0.88);
+            transform-origin: top right;
+        }
+
+        .tcard-top {
+            padding-right: 104px;
+        }
+    }
+</style>
+
+<script>
+    window.flagsPopover = window.flagsPopover || {
+        dotNetRef: null,
+        activeContainerId: null,
+        outsideHandler: null,
+        escapeHandler: null,
+
+        register(dotNetRef, containerId) {
+            this.unregister();
+            this.dotNetRef = dotNetRef;
+            this.activeContainerId = containerId;
+
+            this.outsideHandler = (event) => {
+                const container = document.getElementById(this.activeContainerId);
+                if (!container) {
+                    this.dotNetRef?.invokeMethodAsync('CloseFlagsPopoverFromJs');
+                    return;
+                }
+
+                if (!container.contains(event.target)) {
+                    this.dotNetRef?.invokeMethodAsync('CloseFlagsPopoverFromJs');
+                }
+            };
+
+            this.escapeHandler = (event) => {
+                if (event.key === 'Escape') {
+                    this.dotNetRef?.invokeMethodAsync('CloseFlagsPopoverFromJs');
+                }
+            };
+
+            document.addEventListener('mousedown', this.outsideHandler, true);
+            document.addEventListener('keydown', this.escapeHandler, true);
+        },
+
+        unregister() {
+            if (this.outsideHandler) {
+                document.removeEventListener('mousedown', this.outsideHandler, true);
+            }
+            if (this.escapeHandler) {
+                document.removeEventListener('keydown', this.escapeHandler, true);
+            }
+
+            this.outsideHandler = null;
+            this.escapeHandler = null;
+            this.activeContainerId = null;
+        }
+    };
+
+    window.copyToClipboard = function(text) {
+        // Copy to clipboard
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(function() {
+                showCopiedTooltip(event);
+            }).catch(function(err) {
+                console.error('Failed to copy:', err);
+            });
+        } else {
+            // Fallback for older browsers
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            textArea.style.position = 'fixed';
+            textArea.style.opacity = '0';
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                showCopiedTooltip(event);
+            } catch (err) {
+                console.error('Failed to copy:', err);
+            }
+            document.body.removeChild(textArea);
+        }
+    };
+    
+    function showCopiedTooltip(event) {
+        // Get button position
+        const button = event.target;
+        const rect = button.getBoundingClientRect();
+        
+        // Create tooltip
+        const tooltip = document.createElement('div');
+        tooltip.className = 'copy-tooltip';
+        tooltip.textContent = 'Copied!';
+        tooltip.style.left = rect.left + (rect.width / 2) + 'px';
+        tooltip.style.top = (rect.top - 40) + 'px';
+        tooltip.style.transform = 'translateX(-50%)';
+        
+        document.body.appendChild(tooltip);
+        
+        // Remove after animation (800ms)
+        setTimeout(function() {
+            if (document.body.contains(tooltip)) {
+                document.body.removeChild(tooltip);
+            }
+        }, 800);
+    }
+</script>
+
+@code {
+    private static string Short(string? a)
+        => string.IsNullOrWhiteSpace(a) || a.Length < 10
+            ? (a ?? "")
+            : $"{a[..6]}…{a[^4..]}";
+
+    private static string GetScoreSeverity(int score)
+    {
+        if (score >= 60) return "danger";
+        if (score >= 30) return "warn";
+        return "info";
+    }
+    
+    private static string GetRiskLabel(int score)
+    {
+        if (score >= 60) return "High";
+        if (score >= 30) return "Medium";
+        return "Low";
+    }
+}
+
+@code {
+    private bool _loading = true;
+    private List<(LatestToken Token, RiskReport Report)> _results = new();
+    private string? _openFlagsTokenAddress;
+    private string? _registeredFlagsPopoverContainerId;
+    private DotNetObjectReference<Home>? _dotNetRef;
+    private readonly Dictionary<string, int> _visibleFlagsByToken = new(StringComparer.OrdinalIgnoreCase);
+    private bool _flagsOverflowRegistered;
+    
+    // Search state
+    private string _searchQuery = string.Empty;
+    
+    // AI Analysis Modal state
+    private bool _showAiModal = false;
+    private bool _aiLoading = false;
+    private AiAnalysisResult? _aiAnalysisResult = null;
+    private LatestToken? _selectedToken = null;
+    private RiskReport? _selectedReport = null;
+    
+    // AI Analysis result model
+    private class AiAnalysisResult
+    {
+        public string PatternSimilarity { get; set; } = string.Empty;
+        public string PatternSimilaritySeverity { get; set; } = string.Empty;
+        public string BehavioralAnomaly { get; set; } = string.Empty;
+        public string BehavioralAnomalySeverity { get; set; } = string.Empty;
+        public string ConfidenceScore { get; set; } = string.Empty;
+    }
+    
+    private List<(LatestToken Token, RiskReport Report)> FilteredResults
+    {
+        get
+        {
+            var filtered = _results.AsEnumerable();
+            
+            // Apply search filter
+            if (!string.IsNullOrWhiteSpace(_searchQuery))
+            {
+                var query = _searchQuery.Trim().ToLowerInvariant();
+                filtered = filtered.Where(r =>
+                    r.Token.Name.ToLowerInvariant().Contains(query) ||
+                    r.Token.Symbol.ToLowerInvariant().Contains(query) ||
+                    r.Token.Address.ToLowerInvariant().Contains(query) ||
+                    r.Token.Creator.ToLowerInvariant().Contains(query)
+                );
+            }
+            
+            return filtered.ToList();
+        }
+    }
+    
+    private async Task CopyToClipboard(string text)
+    {
+        await JSRuntime.InvokeVoidAsync("copyToClipboard", text);
+    }
+
+    private static string NormalizeTokenKey(string tokenAddress)
+        => (tokenAddress ?? string.Empty).Trim().ToLowerInvariant();
+
+    private static string GetFlagsContainerId(string tokenAddress)
+    {
+        var safeChars = tokenAddress
+            .Select(ch => char.IsLetterOrDigit(ch) ? ch : '-')
+            .ToArray();
+
+        return $"flags-{new string(safeChars)}";
+    }
+
+    private int GetVisibleFlagsCount(string tokenAddress, int totalFlags)
+    {
+        var tokenKey = NormalizeTokenKey(tokenAddress);
+
+        if (!_visibleFlagsByToken.TryGetValue(tokenKey, out var visibleCount))
+        {
+            return totalFlags;
+        }
+
+        return Math.Clamp(visibleCount, 0, totalFlags);
+    }
+
+    private static string GetFlagsPopoverContainerId(string tokenAddress)
+    {
+        var safeChars = tokenAddress
+            .Select(ch => char.IsLetterOrDigit(ch) ? ch : '-')
+            .ToArray();
+
+        return $"flags-more-{new string(safeChars)}";
+    }
+
+    private bool IsFlagsPopoverOpen(string tokenAddress)
+        => string.Equals(_openFlagsTokenAddress, tokenAddress, StringComparison.OrdinalIgnoreCase);
+
+    private void ToggleFlagsPopover(string tokenAddress)
+    {
+        if (IsFlagsPopoverOpen(tokenAddress))
+        {
+            _openFlagsTokenAddress = null;
+            return;
+        }
+
+        _openFlagsTokenAddress = tokenAddress;
+    }
+
+    private void CloseFlagsPopover()
+    {
+        _openFlagsTokenAddress = null;
+    }
+
+    [JSInvokable]
+    public void CloseFlagsPopoverFromJs()
+    {
+        if (_openFlagsTokenAddress is null)
+        {
+            return;
+        }
+
+        _openFlagsTokenAddress = null;
+        InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    private Task UpdateFlagsOverflowBatch(List<FlagsOverflowState>? states)
+    {
+        states ??= new List<FlagsOverflowState>();
+
+        var changed = false;
+        var keysInView = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var state in states)
+        {
+            if (state is null || string.IsNullOrWhiteSpace(state.TokenKey))
+            {
+                continue;
+            }
+
+            var tokenKey = NormalizeTokenKey(state.TokenKey);
+            var visibleCount = Math.Max(0, state.VisibleCount);
+
+            keysInView.Add(tokenKey);
+
+            if (!_visibleFlagsByToken.TryGetValue(tokenKey, out var current) || current != visibleCount)
+            {
+                _visibleFlagsByToken[tokenKey] = visibleCount;
+                changed = true;
+            }
+        }
+
+        var removedKeys = _visibleFlagsByToken.Keys
+            .Where(key => !keysInView.Contains(key))
+            .ToList();
+
+        foreach (var removedKey in removedKeys)
+        {
+            _visibleFlagsByToken.Remove(removedKey);
+            changed = true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_openFlagsTokenAddress))
+        {
+            var openTokenKey = NormalizeTokenKey(_openFlagsTokenAddress);
+            var openTokenTotalFlags = 0;
+
+            foreach (var result in _results)
+            {
+                if (!string.Equals(NormalizeTokenKey(result.Token.Address), openTokenKey, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                openTokenTotalFlags = result.Report.DisplayFlags.Count();
+                break;
+            }
+
+            if (openTokenTotalFlags > 0 && _visibleFlagsByToken.TryGetValue(openTokenKey, out var openVisibleCount) && openVisibleCount >= openTokenTotalFlags)
+            {
+                _openFlagsTokenAddress = null;
+                changed = true;
+            }
+        }
+
+        if (!changed)
+        {
+            return Task.CompletedTask;
+        }
+
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private sealed class FlagsOverflowState
+    {
+        public string TokenKey { get; set; } = string.Empty;
+        public int VisibleCount { get; set; }
+    }
+    
+    private async Task OpenAiModal(LatestToken token, RiskReport report)
+    {
+        try
+        {
+            Console.WriteLine($"Opening AI modal for token: {token.Name}");
+            
+            _selectedToken = token;
+            _selectedReport = report;
+            _showAiModal = true;
+            _aiLoading = true;
+            _aiAnalysisResult = null;
+            
+            StateHasChanged();
+            
+            // Simulate AI analysis delay (1-2 seconds)
+            await Task.Delay(1500);
+            
+            // Generate mock AI analysis data
+            _aiAnalysisResult = GenerateMockAiAnalysis(token, report);
+            _aiLoading = false;
+            
+            StateHasChanged();
+            
+            Console.WriteLine("AI modal opened successfully");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error opening AI modal: {ex.Message}");
+        }
+    }
+    
+    private void CloseAiModal()
+    {
+        _showAiModal = false;
+        _aiLoading = false;
+        _aiAnalysisResult = null;
+        _selectedToken = null;
+        _selectedReport = null;
+    }
+    
+    private AiAnalysisResult GenerateMockAiAnalysis(LatestToken token, RiskReport report)
+    {
+        // Generate realistic mock data based on risk score
+        // This is where you would call a real AI API in production
+        
+        var random = new Random(token.Address.GetHashCode());
+        var score = report.Score;
+        
+        // Pattern similarity based on risk score
+        string patternSimilarity;
+        string patternSeverity;
+        
+        if (score >= 60)
+        {
+            var patterns = new[] { "High", "Very High", "Critical" };
+            patternSimilarity = patterns[random.Next(patterns.Length)];
+            patternSeverity = "high";
+        }
+        else if (score >= 30)
+        {
+            var patterns = new[] { "Medium", "Moderate", "Elevated" };
+            patternSimilarity = patterns[random.Next(patterns.Length)];
+            patternSeverity = "medium";
+        }
+        else
+        {
+            var patterns = new[] { "Low", "Minimal", "Normal" };
+            patternSimilarity = patterns[random.Next(patterns.Length)];
+            patternSeverity = "low";
+        }
+        
+        // Behavioral anomaly detection
+        string behavioralAnomaly;
+        string behavioralSeverity;
+        
+        if (score >= 60)
+        {
+            var anomalies = new[] { "Detected", "Multiple Detected", "Critical Detected" };
+            behavioralAnomaly = anomalies[random.Next(anomalies.Length)];
+            behavioralSeverity = "high";
+        }
+        else if (score >= 30)
+        {
+            var anomalies = new[] { "Detected", "Minor Detected", "Possible" };
+            behavioralAnomaly = anomalies[random.Next(anomalies.Length)];
+            behavioralSeverity = "medium";
+        }
+        else
+        {
+            var anomalies = new[] { "Not Detected", "Clear", "Normal" };
+            behavioralAnomaly = anomalies[random.Next(anomalies.Length)];
+            behavioralSeverity = "low";
+        }
+        
+        // Confidence score - always experimental for now
+        var confidenceScores = new[] { "Experimental", "Beta Quality", "Preview Mode" };
+        var confidenceScore = confidenceScores[random.Next(confidenceScores.Length)];
+        
+        return new AiAnalysisResult
+        {
+            PatternSimilarity = patternSimilarity,
+            PatternSimilaritySeverity = patternSeverity,
+            BehavioralAnomaly = behavioralAnomaly,
+            BehavioralAnomalySeverity = behavioralSeverity,
+            ConfidenceScore = confidenceScore
+        };
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _loading = true;
+
+        try
+        {
+            var ct = CancellationToken.None;
+
+            // 1) Tokeny z Bitquery (Twoje obecne źródło)
+            var tokens = (await FourMemeSource.GetLatestAsync(6, ct))//limit 10
+                ?.ToList()
+                ?? new List<LatestToken>();
+
+            // 2) Main lista z Four.Meme (TimeDesc) -> mapa address => imageUrl
+            var mainList = await FourMemeMainListSource.GetMainListAsync(30, ct); // <- nazwa metody do podmiany jeśli inna
+
+            var imgMap = mainList
+                .Where(x => !string.IsNullOrWhiteSpace(x.Address))
+                .Where(x => !string.IsNullOrWhiteSpace(x.ImageUrl)) // <- jeśli masz "Image", podmień na x.Image
+                .ToDictionary(
+                    x => x.Address.Trim().ToLowerInvariant(),
+                    x => x.ImageUrl! // <- jeśli masz "Image", podmień na x.Image!
+                );
+
+            // 3) Uzupełnij ImageUrl w tokenach
+            // Jeśli LatestToken jest record i ma ImageUrl, użyj "with".
+            // Jeśli nie jest record — zrób nowy obiekt/rekord w else.
+            tokens = tokens.Select(t =>
+            {
+                var key = (t.Address ?? "").Trim().ToLowerInvariant();
+                if (imgMap.TryGetValue(key, out var img))
+                {
+                    // record:
+                    return t with { ImageUrl = img };
+                }
+
+                return t;
+            }).ToList();
+
+            // 4) Analiza ryzyka (już z ImageUrl) - using BATCH analysis for better pattern detection
+            _results = await RiskAnalyzer.AnalyzeBatchAsync(tokens, ct);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _dotNetRef = DotNetObjectReference.Create(this);
+        }
+
+        if (_dotNetRef is null)
+        {
+            return;
+        }
+
+        if (!_flagsOverflowRegistered)
+        {
+            await JSRuntime.InvokeVoidAsync("flagsOverflow.register", _dotNetRef);
+            _flagsOverflowRegistered = true;
+        }
+
+        await JSRuntime.InvokeVoidAsync("flagsOverflow.recalculateAll");
+
+        if (string.IsNullOrWhiteSpace(_openFlagsTokenAddress))
+        {
+            if (_registeredFlagsPopoverContainerId is not null)
+            {
+                await JSRuntime.InvokeVoidAsync("flagsPopover.unregister");
+                _registeredFlagsPopoverContainerId = null;
+            }
+
+            return;
+        }
+
+        var containerId = GetFlagsPopoverContainerId(_openFlagsTokenAddress);
+        if (!string.Equals(_registeredFlagsPopoverContainerId, containerId, StringComparison.Ordinal))
+        {
+            await JSRuntime.InvokeVoidAsync("flagsPopover.register", _dotNetRef, containerId);
+            _registeredFlagsPopoverContainerId = containerId;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("flagsOverflow.dispose");
+            await JSRuntime.InvokeVoidAsync("flagsPopover.unregister");
+        }
+        catch
+        {
+        }
+
+        _dotNetRef?.Dispose();
+    }
+
+}
