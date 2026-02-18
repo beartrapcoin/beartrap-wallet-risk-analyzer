@@ -53,4 +53,18 @@ public interface IFourMemeClient
         string? tokenName,
         string? symbol,
         CancellationToken ct);
+
+    /// <summary>
+    /// Queries Four.Meme token endpoint with optional token name search and pagination.
+    /// </summary>
+    /// <param name="tokenName">Optional token name; when empty uses latest tokens mode</param>
+    /// <param name="pageIndex">Page index for pagination (1-based)</param>
+    /// <param name="pageSize">Number of tokens per page</param>
+    /// <param name="ct">Cancellation token</param>
+    /// <returns>List of token metadata</returns>
+    Task<IReadOnlyList<LatestToken>> QueryTokensAsync(
+        string? tokenName,
+        int pageIndex,
+        int pageSize,
+        CancellationToken ct);
 }

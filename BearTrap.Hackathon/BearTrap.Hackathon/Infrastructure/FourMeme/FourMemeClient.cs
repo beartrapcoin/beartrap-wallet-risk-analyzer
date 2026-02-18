@@ -37,23 +37,15 @@ public sealed class FourMemeClient : IFourMemeClient
 
     public async Task<IReadOnlyList<FourMemeListedToken>> GetMainListAsync(int pageSize, CancellationToken ct)
     {
-          var url = $"https://four.meme/meme-api/v1/private/token/query?orderBy=TimeDesc&tokenName=&listedPancake=false&pageIndex=1&pageSize=5&symbol=&labels=";
+        var tokens = await QueryTokensAsync(null, pageIndex: 1, pageSize, ct);
 
-        using var resp = await _httpClient.GetAsync(url, ct);
-        resp.EnsureSuccessStatusCode();
-
-        var json = await resp.Content.ReadAsStringAsync(ct);
-
-        var dto = JsonSerializer.Deserialize<FourMemeQueryResponse>(json, JsonOptions);
-
-        return dto?.Data?
+        return tokens
             .Select(x => new FourMemeListedToken
             {
-                Address = x.Address?.Trim().ToLowerInvariant() ?? string.Empty,
-                ImageUrl = x.Image
+                Address = x.Address.Trim().ToLowerInvariant(),
+                ImageUrl = x.ImageUrl
             })
-            .ToList()
-            ?? new List<FourMemeListedToken>();
+            .ToList();
     }
 
     public async Task<IEnumerable<LatestToken>> GetLatestTokensAsync(int count, CancellationToken ct)
@@ -62,32 +54,48 @@ public sealed class FourMemeClient : IFourMemeClient
 
         var pageSize = Math.Max(count, 30);
 
+        var list = (await QueryTokensAsync(null, pageIndex: 1, pageSize, ct))
+            .Take(count)
+            .ToList();
+
+        return list;
+    }
+
+    public async Task<IReadOnlyList<LatestToken>> QueryTokensAsync(
+        string? tokenName,
+        int pageIndex,
+        int pageSize,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        var normalizedName = (tokenName ?? string.Empty).Trim();
+        var isSearchMode = !string.IsNullOrWhiteSpace(normalizedName);
+        var orderBy = isSearchMode ? "Query" : "TimeDesc";
+        var safePageIndex = Math.Max(1, pageIndex);
+        var safePageSize = Math.Max(1, pageSize);
+
         var url =
             $"https://four.meme/meme-api/v1/private/token/query" +
-            $"?orderBy=TimeDesc&tokenName=&listedPancake=false&pageIndex=1&pageSize={pageSize}&symbol=&labels=";
+            $"?orderBy={orderBy}&tokenName={Uri.EscapeDataString(normalizedName)}&listedPancake=false&pageIndex={safePageIndex}&pageSize={safePageSize}&symbol=&labels=";
 
         using var resp = await _httpClient.GetAsync(url, ct);
         resp.EnsureSuccessStatusCode();
 
         var json = await resp.Content.ReadAsStringAsync(ct);
-
         var dto = JsonSerializer.Deserialize<FourMemeQueryResponse>(json, JsonOptions);
         var data = dto?.Data ?? new List<FourMemeTokenDto>();
 
-        var list = data
+        return data
             .Where(x => !string.IsNullOrWhiteSpace(x.Address))
-            .Take(count)
             .Select(x => new LatestToken(
                 Address: x.Address!.Trim().ToLowerInvariant(),
-                Name: x.ShortName?.Trim() ?? x.Name?.Trim() ?? "",
-                Symbol: x.Symbol?.Trim() ?? "",
-                Creator: x.UserAddress?.Trim() ?? "",
+                Name: x.ShortName?.Trim() ?? x.Name?.Trim() ?? string.Empty,
+                Symbol: x.Symbol?.Trim() ?? string.Empty,
+                Creator: x.UserAddress?.Trim() ?? string.Empty,
                 CreatedAt: FromUnixMs(x.LaunchTime),
-                ImageUrl: x.Image?.Trim()
-            ))
+                ImageUrl: x.Image?.Trim()))
             .ToList();
-
-        return list;
     }
 
     public async Task<IReadOnlyList<string>> GetMainListAddressesAsync(

@@ -24,23 +24,27 @@
             <div class="controls-grid">
                 <!-- Search Bar (Pill Style) -->
                 <div class="search-wrapper">
-                    <span class="search-icon" aria-hidden="true">
-                        <svg viewBox="0 0 24 24" width="18" height="18" xmlns="http://www.w3.org/2000/svg">
-                            <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-                            <line x1="16.65" y1="16.65" x2="21" y2="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-                        </svg>
-                    </span>
                     <input type="text" 
                            class="search-pill" 
                            placeholder="Search by name, symbol, token or creator..."
                            @bind="_searchQuery"
-                           @bind:event="oninput" />
+                           @bind:event="oninput"
+                           @onkeydown="OnSearchInputKeyDown" />
+                    <button type="button"
+                            class="search-trigger"
+                            title="Search"
+                            aria-label="Search"
+                            @onclick="SearchAsync">
+                        <span class="search-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" width="18" height="18" xmlns="http://www.w3.org/2000/svg">
+                                <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                                <line x1="16.65" y1="16.65" x2="21" y2="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </span>
+                    </button>
                 </div>
             </div>
-            <div class="search-note">
-                Wallet-based search is being refined.<br />
-                Advanced wallet intelligence coming soon.
-            </div>
+           
         </div>
         
         <!-- Token List Content -->
@@ -57,7 +61,7 @@
             else if (FilteredResults.Count == 0)
             {
                 <div class="empty-state">
-                    <p>@(_results.Count == 0 ? "No tokens found." : "No tokens match your search.")</p>
+                    <p>No tokens found.</p>
                 </div>
             }
             else
@@ -243,6 +247,18 @@
                         </div>
                     }
                 </div>
+
+                @if (CanLoadMore)
+                {
+                    <div class="load-more-wrap">
+                        <button type="button"
+                                class="btn-load-more"
+                                disabled="@_loadingMore"
+                                @onclick="LoadMoreAsync">
+                            @(_loadingMore ? "Loading..." : "Load more")
+                        </button>
+                    </div>
+                }
             }
         </div>
     </div>
@@ -663,13 +679,8 @@
     }
 
     .search-icon {
-        position: absolute;
-        left: 18px;
-        top: 50%;
-        transform: translateY(-50%);
         width: 18px;
         height: 18px;
-        pointer-events: none;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -677,13 +688,38 @@
         color: #bfa14a;
         opacity: 0.9;
     }
+
+    .search-trigger {
+        position: absolute;
+        right: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        border: 1px solid var(--bt-border-soft);
+        background: rgba(255,250,240,0.92);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .search-trigger:hover,
+    .search-trigger:focus-visible {
+        border-color: rgba(201,146,26,0.46);
+        background: var(--bt-surface-0);
+        outline: none;
+    }
     
     .search-pill {
         width: 100%;
         height: 46px;
         border-radius: 14px;
         border: 1px solid var(--bt-border-soft);
-        padding: 0 18px 0 48px;
+        padding: 0 52px 0 18px;
         font-size: 0.9375rem;
         background: rgba(255,250,240,0.90);
         box-shadow: 0 6px 18px rgba(20,17,12,0.08);
@@ -727,6 +763,36 @@
         padding: 60px 20px;
         color: var(--bt-ink-2);
         font-size: 0.9375rem;
+    }
+
+    .load-more-wrap {
+        display: flex;
+        justify-content: center;
+        margin-top: 16px;
+    }
+
+    .btn-load-more {
+        padding: 9px 18px;
+        border-radius: 10px;
+        border: 1px solid rgba(201,146,26,0.32);
+        background: linear-gradient(145deg, rgba(242,193,78,0.16), rgba(255,250,240,0.62));
+        color: var(--bt-ink-1);
+        font-size: 0.84rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .btn-load-more:hover:not(:disabled),
+    .btn-load-more:focus-visible:not(:disabled) {
+        border-color: rgba(201,146,26,0.50);
+        background: linear-gradient(145deg, rgba(242,193,78,0.24), rgba(255,250,240,0.72));
+        outline: none;
+    }
+
+    .btn-load-more:disabled {
+        opacity: 0.65;
+        cursor: default;
     }
     
     /* ========================================
@@ -1443,6 +1509,16 @@
     
     // Search state
     private string _searchQuery = string.Empty;
+    private string _activeQuery = string.Empty;
+    private int _searchPageIndex = 1;
+    private bool _hasMoreSearchPages;
+    private bool _loadingMore;
+    private CancellationTokenSource? _requestCts;
+
+    private const int LatestPageSize = 6;
+    private const int SearchPageSize = 20;
+    private const int SearchMaxPages = 5;
+    private const int EnrichmentMaxConcurrency = 4;
     
     // AI Analysis Modal state
     private bool _showAiModal = false;
@@ -1461,27 +1537,11 @@
         public string ConfidenceScore { get; set; } = string.Empty;
     }
     
-    private List<(LatestToken Token, RiskReport Report)> FilteredResults
-    {
-        get
-        {
-            var filtered = _results.AsEnumerable();
-            
-            // Apply search filter
-            if (!string.IsNullOrWhiteSpace(_searchQuery))
-            {
-                var query = _searchQuery.Trim().ToLowerInvariant();
-                filtered = filtered.Where(r =>
-                    r.Token.Name.ToLowerInvariant().Contains(query) ||
-                    r.Token.Symbol.ToLowerInvariant().Contains(query) ||
-                    r.Token.Address.ToLowerInvariant().Contains(query) ||
-                    r.Token.Creator.ToLowerInvariant().Contains(query)
-                );
-            }
-            
-            return filtered.ToList();
-        }
-    }
+    private List<(LatestToken Token, RiskReport Report)> FilteredResults => _results;
+
+    private bool IsSearchMode => !string.IsNullOrWhiteSpace(_activeQuery);
+
+    private bool CanLoadMore => IsSearchMode && _hasMoreSearchPages && !_loading;
     
     private async Task CopyToClipboard(string text)
     {
@@ -1736,50 +1796,140 @@
 
     protected override async Task OnInitializedAsync()
     {
+        await Task.CompletedTask;
+    }
+
+    private async Task OnSearchInputKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs args)
+    {
+        if (!string.Equals(args.Key, "Enter", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        await SearchAsync();
+    }
+
+    private Task SearchAsync()
+    {
+        return LoadFirstPageAsync();
+    }
+
+    private async Task LoadFirstPageAsync()
+    {
+        var requestCt = BeginNewRequest();
+
         _loading = true;
+        _loadingMore = false;
+
+        var query = (_searchQuery ?? string.Empty).Trim();
 
         try
         {
-            var ct = CancellationToken.None;
-
-            // 1) Tokeny z Bitquery (Twoje obecne źródło)
-            var tokens = (await FourMemeSource.GetLatestAsync(6, ct))//limit 10
-                ?.ToList()
-                ?? new List<LatestToken>();
-
-            // 2) Main lista z Four.Meme (TimeDesc) -> mapa address => imageUrl
-            var mainList = await FourMemeMainListSource.GetMainListAsync(30, ct); // <- nazwa metody do podmiany jeśli inna
-
-            var imgMap = mainList
-                .Where(x => !string.IsNullOrWhiteSpace(x.Address))
-                .Where(x => !string.IsNullOrWhiteSpace(x.ImageUrl)) // <- jeśli masz "Image", podmień na x.Image
-                .ToDictionary(
-                    x => x.Address.Trim().ToLowerInvariant(),
-                    x => x.ImageUrl! // <- jeśli masz "Image", podmień na x.Image!
-                );
-
-            // 3) Uzupełnij ImageUrl w tokenach
-            // Jeśli LatestToken jest record i ma ImageUrl, użyj "with".
-            // Jeśli nie jest record — zrób nowy obiekt/rekord w else.
-            tokens = tokens.Select(t =>
-            {
-                var key = (t.Address ?? "").Trim().ToLowerInvariant();
-                if (imgMap.TryGetValue(key, out var img))
-                {
-                    // record:
-                    return t with { ImageUrl = img };
-                }
-
-                return t;
-            }).ToList();
-
-            // 4) Analiza ryzyka (już z ImageUrl) - using BATCH analysis for better pattern detection
-            _results = await RiskAnalyzer.AnalyzeBatchAsync(tokens, ct);
+            await LoadTokensPageAsync(query, pageIndex: 1, append: false, requestCt);
+        }
+        catch (OperationCanceledException)
+        {
         }
         finally
         {
             _loading = false;
+            await InvokeAsync(StateHasChanged);
         }
+    }
+
+    private async Task LoadMoreAsync()
+    {
+        if (!CanLoadMore)
+        {
+            return;
+        }
+
+        var requestCt = BeginNewRequest();
+        _loadingMore = true;
+
+        try
+        {
+            await LoadTokensPageAsync(_activeQuery, _searchPageIndex + 1, append: true, requestCt);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            _loadingMore = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private CancellationToken BeginNewRequest()
+    {
+        _requestCts?.Cancel();
+        _requestCts?.Dispose();
+        _requestCts = new CancellationTokenSource();
+        return _requestCts.Token;
+    }
+
+    private async Task LoadTokensPageAsync(string query, int pageIndex, bool append, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        var normalizedQuery = (query ?? string.Empty).Trim();
+        var isSearchMode = !string.IsNullOrWhiteSpace(normalizedQuery);
+
+        var safePageIndex = Math.Max(1, pageIndex);
+        var pageSize = isSearchMode ? SearchPageSize : LatestPageSize;
+
+        var tokenDtos = await FourMemeMainListSource.QueryTokensAsync(normalizedQuery, safePageIndex, pageSize, ct);
+        var enrichedTokens = await EnrichTokensWithLimitedConcurrencyAsync(tokenDtos, ct);
+        var analyzedRows = await RiskAnalyzer.AnalyzeBatchAsync(enrichedTokens, ct);
+
+        if (append)
+        {
+            _results.AddRange(analyzedRows);
+        }
+        else
+        {
+            _results = analyzedRows;
+            _visibleFlagsByToken.Clear();
+            _openFlagsTokenAddress = null;
+        }
+
+        _activeQuery = normalizedQuery;
+        _searchPageIndex = safePageIndex;
+        _hasMoreSearchPages = isSearchMode && safePageIndex < SearchMaxPages && tokenDtos.Count >= pageSize;
+    }
+
+    private static async Task<List<LatestToken>> EnrichTokensWithLimitedConcurrencyAsync(
+        IReadOnlyList<TokenDto> tokenDtos,
+        CancellationToken ct)
+    {
+        if (tokenDtos.Count == 0)
+        {
+            return new List<LatestToken>();
+        }
+
+        using var throttler = new SemaphoreSlim(EnrichmentMaxConcurrency);
+        var tasks = tokenDtos.Select(async dto =>
+        {
+            await throttler.WaitAsync(ct);
+            try
+            {
+                return new LatestToken(
+                    Address: dto.Address,
+                    Name: dto.Name,
+                    Symbol: dto.Symbol,
+                    Creator: dto.Creator,
+                    CreatedAt: dto.CreatedAt,
+                    ImageUrl: dto.ImageUrl);
+            }
+            finally
+            {
+                throttler.Release();
+            }
+        });
+
+        var mapped = await Task.WhenAll(tasks);
+        return mapped.ToList();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -1787,6 +1937,7 @@
         if (firstRender)
         {
             _dotNetRef = DotNetObjectReference.Create(this);
+            await LoadFirstPageAsync();
         }
 
         if (_dotNetRef is null)
@@ -1823,6 +1974,9 @@
 
     public async ValueTask DisposeAsync()
     {
+        _requestCts?.Cancel();
+        _requestCts?.Dispose();
+
         try
         {
             await JSRuntime.InvokeVoidAsync("flagsOverflow.dispose");

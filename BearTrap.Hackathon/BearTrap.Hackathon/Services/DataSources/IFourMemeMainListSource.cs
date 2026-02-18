@@ -5,5 +5,6 @@ namespace BearTrap.Hackathon.Services.DataSources
     public interface IFourMemeMainListSource
     {
         Task<IReadOnlyList<FourMemeListedToken>> GetMainListAsync(int pageSize, CancellationToken ct);
+        Task<IReadOnlyList<TokenDto>> QueryTokensAsync(string? tokenName, int pageIndex, int pageSize, CancellationToken ct);
     }
 }
