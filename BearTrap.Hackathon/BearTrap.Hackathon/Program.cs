@@ -91,23 +91,26 @@ builder.Services.AddRazorComponents()
 // EF Core SQLite - stores token snapshots and analysis history
 var dbPath = Path.Combine(builder.Environment.ContentRootPath, "beartrap_hackathon.db");
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlite($"Data Source={dbPath}"));
+    options.UseSqlite($"Data Source={dbPath}", 
+        sqliteOptions => sqliteOptions.MigrationsAssembly(typeof(AppDbContext).Assembly.FullName)));
 
 // ===== Application Services =====
 // Risk analyzer orchestrates token analysis and scoring
 builder.Services.AddScoped<RiskAnalyzer>();
 
 // ===== Chain Data Provider Selection =====
-// Reads ChainDataProvider config (default: Offchain)
-// Supports: Offchain (mock), Rpc, or Bitquery
-var provider = (builder.Configuration["ChainDataProvider"] ?? "Offchain").Trim();
+// Reads ChainDataProvider config (default: Rpc for production)
+// Supports: Mock (offchain), Rpc, or Bitquery
+var provider = builder.Configuration["ChainDataProvider"]?.Trim();
 
 if (string.IsNullOrWhiteSpace(provider))
 {
-    provider = "Offchain";
+    // Default to Rpc in production, Mock in development
+    provider = builder.Environment.IsDevelopment() ? "Mock" : "Rpc";
 }
 
-if (provider.Equals("Offchain", StringComparison.OrdinalIgnoreCase))
+if (provider.Equals("Mock", StringComparison.OrdinalIgnoreCase) ||
+    provider.Equals("Offchain", StringComparison.OrdinalIgnoreCase))
 {
     builder.Services.AddScoped<IChainDataSource, OffchainChainDataSource>();
     // Use mock data source in Offchain mode to avoid HTTP calls
@@ -132,6 +135,7 @@ builder.Services.AddScoped<IFourMemeMainListSource, FourMemeSource>();
 
 var app = builder.Build();
 
+
 // ===== Middleware Pipeline =====
 // Enable rate limiting middleware - rejects requests exceeding 60/minute per IP
 app.UseRateLimiter();
@@ -149,5 +153,68 @@ app.UseAntiforgery();
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
+
+// ===== Database Migration =====
+// Apply pending migrations on startup (creates database if it doesn't exist)
+using (var scope = app.Services.CreateScope())
+{
+    var loggerFactory = scope.ServiceProvider.GetRequiredService<ILoggerFactory>();
+    var logger = loggerFactory.CreateLogger("DatabaseMigration");
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    
+    try
+    {
+        logger.LogInformation("Starting database migration check...");
+        logger.LogInformation("Database connection string: {ConnectionString}", db.Database.GetConnectionString());
+        logger.LogInformation("Database file path: {DbPath}", dbPath);
+        logger.LogInformation("Database file exists: {Exists}", File.Exists(dbPath));
+        
+        var pendingMigrations = db.Database.GetPendingMigrations().ToList();
+        var appliedMigrations = db.Database.GetAppliedMigrations().ToList();
+        
+        logger.LogInformation("Applied migrations: {Count}", appliedMigrations.Count);
+        foreach (var migration in appliedMigrations)
+        {
+            logger.LogInformation("  - {Migration}", migration);
+        }
+        
+        logger.LogInformation("Pending migrations: {Count}", pendingMigrations.Count);
+        foreach (var migration in pendingMigrations)
+        {
+            logger.LogInformation("  - {Migration}", migration);
+        }
+        
+        if (pendingMigrations.Any())
+        {
+            logger.LogInformation("Applying {Count} pending migrations...", pendingMigrations.Count);
+            db.Database.Migrate();
+            logger.LogInformation("Migrations applied successfully.");
+        }
+        else
+        {
+            logger.LogInformation("Database is up to date. No migrations to apply.");
+        }
+        
+        // Verify tables exist
+        var canConnect = db.Database.CanConnect();
+        logger.LogInformation("Database connection test: {CanConnect}", canConnect);
+        
+        if (canConnect)
+        {
+            var tokenSnapshotCount = db.TokenSnapshots.Count();
+            var riskReportCount = db.RiskReports.Count();
+            logger.LogInformation("TokenSnapshots table exists with {Count} records", tokenSnapshotCount);
+            logger.LogInformation("RiskReports table exists with {Count} records", riskReportCount);
+        }
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "CRITICAL: Database migration failed! Error: {Message}", ex.Message);
+        logger.LogError("Database path: {DbPath}", dbPath);
+        logger.LogError("Working directory: {WorkingDir}", Directory.GetCurrentDirectory());
+        logger.LogError("ContentRootPath: {ContentRoot}", builder.Environment.ContentRootPath);
+        throw; // Re-throw to prevent app from starting with broken database
+    }
+}
 
 app.Run();
