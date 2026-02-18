@@ -19,7 +19,12 @@
         <!-- Header Area -->
         <div class="header-area">
             <h1 class="dash-title">BearTrap Token Risk Analysis</h1>
-            <div class="dash-subtitle">Hackathon Edition</div>
+            <div class="dash-subtitle">
+                <span class="subtitle-inline">
+                    <span>Hackathon Edition</span>
+                    <span class="edition-badge">Four.Meme-listed Tokens</span>
+                </span>
+            </div>
             
             <div class="controls-grid">
                 <!-- Search Bar (Pill Style) -->
@@ -657,6 +662,28 @@
         color: #d4a017;
         text-shadow: 0 1px 6px rgba(201,146,26,0.20);
     }
+
+    .subtitle-inline {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        max-width: 100%;
+    }
+
+    .edition-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 8px;
+        border-radius: 8px;
+        font-size: 0.82rem;
+        font-weight: 600;
+        line-height: 1.25;
+        color: var(--bt-ink-2);
+        background: rgba(255, 250, 240, 0.70);
+        border: 1px solid var(--bt-border-soft);
+        white-space: nowrap;
+    }
     
      /* ========================================
          CONTROLS GRID
@@ -1282,6 +1309,10 @@
             margin-top: 6px;
             margin-bottom: 14px;
             font-size: 0.9rem;
+        }
+
+        .edition-badge {
+            font-size: 0.8rem;
         }
         
         .controls-grid {
