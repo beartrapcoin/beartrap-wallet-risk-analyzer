@@ -45,6 +45,29 @@ main {
     }
 }
 
+/* Mobile-optimized layout - reduce horizontal padding */
+
+.container,
+.container-fluid {
+    padding-left: 0px;
+    padding-right: 0px;
+    max-width: 100%;
+}
+
+    .content.px-4 {
+        padding-left: 0rem !important;
+        padding-right: 0rem !important;
+    }
+}
+
+/* Extra small devices - minimize padding further */
+
+    .content.px-4 {
+        padding-left: 0rem !important;
+        padding-right: 0rem !important;
+    }
+}
+
 #blazor-error-ui {
     background: lightyellow;
     bottom: 0;
