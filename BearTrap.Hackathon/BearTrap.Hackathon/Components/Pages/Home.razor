@@ -1422,6 +1422,13 @@
             padding-right: 116px;
             min-height: 76px;
         }
+
+        .tright {
+            right: 0;
+            width: 116px;
+            justify-content: center;
+            align-items: center;
+        }
         
         .risk-gauge {
             width: 100px;
@@ -1482,8 +1489,10 @@
 
     @@media (max-width: 480px) {
         .tright {
+            right: 0;
+            width: 104px;
             transform: scale(0.88);
-            transform-origin: top right;
+            transform-origin: top center;
         }
 
         .tcard-top {
