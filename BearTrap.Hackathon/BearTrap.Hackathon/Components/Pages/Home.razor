@@ -27,6 +27,20 @@
             </div>
             
             <div class="controls-grid">
+                <div class="order-wrapper">
+                    <label class="order-label" for="orderBySelect">Order by</label>
+                    <select id="orderBySelect"
+                            class="order-select"
+                            value="@_selectedOrderBy"
+                            @onchange="OnOrderByChangedAsync">
+                        <option value="@FourMemeOrderBy.Hot">Featured</option>
+                        <option value="@FourMemeOrderBy.TimeDesc">Creation Time</option>
+                        <option value="@FourMemeOrderBy.TradingVolume">Trading Volume</option>
+                        <option value="@FourMemeOrderBy.Progress">Progress</option>
+                        <option value="@FourMemeOrderBy.LastTrade">Last Trade</option>
+                    </select>
+                </div>
+
                 <!-- Search Bar (Pill Style) -->
                 <div class="search-wrapper">
                     <input type="text" 
@@ -66,7 +80,17 @@
             else if (FilteredResults.Count == 0)
             {
                 <div class="empty-state">
-                    <p>No tokens found.</p>
+                    @if (IsSearchMode)
+                    {
+                        <p>
+                            No results.
+                            <button type="button" class="empty-link" @onclick="ShowFeaturedAsync">Show Featured</button>
+                        </p>
+                    }
+                    else
+                    {
+                        <p>No tokens found.</p>
+                    }
                 </div>
             }
             else
@@ -694,6 +718,38 @@
         margin-bottom: 16px;
         align-items: center;
     }
+
+    .order-wrapper {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        flex: 0 0 auto;
+    }
+
+    .order-label {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--bt-ink-2);
+        margin: 0;
+        white-space: nowrap;
+    }
+
+    .order-select {
+        height: 38px;
+        border-radius: 10px;
+        border: 1px solid var(--bt-border-soft);
+        background: rgba(255,250,240,0.90);
+        color: var(--bt-ink-1);
+        padding: 0 10px;
+        font-size: 0.84rem;
+        font-weight: 600;
+    }
+
+    .order-select:focus {
+        outline: none;
+        border-color: rgba(201,146,26,0.55);
+        box-shadow: 0 0 0 3px rgba(242,193,78,0.20);
+    }
     
     .search-wrapper {
         flex: 1 1 auto;
@@ -790,6 +846,23 @@
         padding: 60px 20px;
         color: var(--bt-ink-2);
         font-size: 0.9375rem;
+    }
+
+    .empty-link {
+        border: none;
+        background: none;
+        color: var(--bt-ink-1);
+        font-size: 0.86rem;
+        font-weight: 600;
+        text-decoration: underline;
+        text-underline-offset: 3px;
+        cursor: pointer;
+    }
+
+    .empty-link:hover,
+    .empty-link:focus-visible {
+        color: var(--bt-ink-0);
+        outline: none;
     }
 
     .load-more-wrap {
@@ -1319,6 +1392,16 @@
             flex-direction: column;
             gap: 10px;
         }
+
+        .order-wrapper {
+            width: 100%;
+            justify-content: flex-start;
+        }
+
+        .order-select {
+            min-width: 180px;
+            max-width: 100%;
+        }
         
         .search-wrapper {
             width: 100%;
@@ -1541,6 +1624,7 @@
     // Search state
     private string _searchQuery = string.Empty;
     private string _activeQuery = string.Empty;
+    private FourMemeOrderBy _selectedOrderBy = FourMemeOrderBy.TimeDesc;
     private int _searchPageIndex = 1;
     private bool _hasMoreSearchPages;
     private bool _loadingMore;
@@ -1845,6 +1929,36 @@
         return LoadFirstPageAsync();
     }
 
+    private async Task OnOrderByChangedAsync(ChangeEventArgs args)
+    {
+        var rawValue = args?.Value?.ToString();
+        if (!Enum.TryParse<FourMemeOrderBy>(rawValue, ignoreCase: true, out var selected))
+        {
+            selected = FourMemeOrderBy.Hot;
+        }
+
+        if (selected == FourMemeOrderBy.Query)
+        {
+            selected = FourMemeOrderBy.TimeDesc;
+        }
+
+        if (_selectedOrderBy == selected && string.IsNullOrWhiteSpace(_searchQuery))
+        {
+            return;
+        }
+
+        _selectedOrderBy = selected;
+        _searchQuery = string.Empty;
+        await LoadFirstPageAsync();
+    }
+
+    private async Task ShowFeaturedAsync()
+    {
+        _selectedOrderBy = FourMemeOrderBy.Hot;
+        _searchQuery = string.Empty;
+        await LoadFirstPageAsync();
+    }
+
     private async Task LoadFirstPageAsync()
     {
         var requestCt = BeginNewRequest();
@@ -1906,11 +2020,12 @@
 
         var normalizedQuery = (query ?? string.Empty).Trim();
         var isSearchMode = !string.IsNullOrWhiteSpace(normalizedQuery);
+        var orderBy = isSearchMode ? FourMemeOrderBy.Query : _selectedOrderBy;
 
         var safePageIndex = Math.Max(1, pageIndex);
         var pageSize = isSearchMode ? SearchPageSize : LatestPageSize;
 
-        var tokenDtos = await FourMemeMainListSource.QueryTokensAsync(normalizedQuery, safePageIndex, pageSize, ct);
+        var tokenDtos = await FourMemeMainListSource.QueryTokensAsync(normalizedQuery, orderBy, safePageIndex, pageSize, ct);
         var enrichedTokens = await EnrichTokensWithLimitedConcurrencyAsync(tokenDtos, ct);
         var analyzedRows = await RiskAnalyzer.AnalyzeBatchAsync(enrichedTokens, ct);
 

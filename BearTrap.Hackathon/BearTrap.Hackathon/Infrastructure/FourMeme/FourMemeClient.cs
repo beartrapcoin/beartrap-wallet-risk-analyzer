@@ -37,7 +37,7 @@ public sealed class FourMemeClient : IFourMemeClient
 
     public async Task<IReadOnlyList<FourMemeListedToken>> GetMainListAsync(int pageSize, CancellationToken ct)
     {
-        var tokens = await QueryTokensAsync(null, pageIndex: 1, pageSize, ct);
+        var tokens = await QueryTokensAsync(null, FourMemeOrderBy.TimeDesc, pageIndex: 1, pageSize, ct);
 
         return tokens
             .Select(x => new FourMemeListedToken
@@ -54,7 +54,7 @@ public sealed class FourMemeClient : IFourMemeClient
 
         var pageSize = Math.Max(count, 30);
 
-        var list = (await QueryTokensAsync(null, pageIndex: 1, pageSize, ct))
+        var list = (await QueryTokensAsync(null, FourMemeOrderBy.TimeDesc, pageIndex: 1, pageSize, ct))
             .Take(count)
             .ToList();
 
@@ -63,6 +63,7 @@ public sealed class FourMemeClient : IFourMemeClient
 
     public async Task<IReadOnlyList<LatestToken>> QueryTokensAsync(
         string? tokenName,
+        FourMemeOrderBy orderBy,
         int pageIndex,
         int pageSize,
         CancellationToken ct)
@@ -71,13 +72,13 @@ public sealed class FourMemeClient : IFourMemeClient
 
         var normalizedName = (tokenName ?? string.Empty).Trim();
         var isSearchMode = !string.IsNullOrWhiteSpace(normalizedName);
-        var orderBy = isSearchMode ? "Query" : "TimeDesc";
+        var apiOrderBy = ResolveApiOrderBy(orderBy, isSearchMode);
         var safePageIndex = Math.Max(1, pageIndex);
         var safePageSize = Math.Max(1, pageSize);
 
         var url =
             $"https://four.meme/meme-api/v1/private/token/query" +
-            $"?orderBy={orderBy}&tokenName={Uri.EscapeDataString(normalizedName)}&listedPancake=false&pageIndex={safePageIndex}&pageSize={safePageSize}&symbol=&labels=";
+            $"?orderBy={apiOrderBy}&tokenName={Uri.EscapeDataString(normalizedName)}&listedPancake=false&pageIndex={safePageIndex}&pageSize={safePageSize}&symbol=&labels=";
 
         using var resp = await _httpClient.GetAsync(url, ct);
         resp.EnsureSuccessStatusCode();
@@ -146,6 +147,24 @@ public sealed class FourMemeClient : IFourMemeClient
 
     private static DateTimeOffset FromUnixMs(long? ms)
         => ms is null or <= 0 ? DateTimeOffset.UtcNow : DateTimeOffset.FromUnixTimeMilliseconds(ms.Value);
+
+    private static string ResolveApiOrderBy(FourMemeOrderBy orderBy, bool isSearchMode)
+    {
+        if (isSearchMode)
+        {
+            return "Query";
+        }
+
+        return orderBy switch
+        {
+            FourMemeOrderBy.Hot => "Hot",
+            FourMemeOrderBy.TimeDesc => "TimeDesc",
+            FourMemeOrderBy.TradingVolume => "OrderDesc",
+            FourMemeOrderBy.Progress => "ProgressDesc",
+            FourMemeOrderBy.LastTrade => "LastTradeDesc",
+            _ => "Hot"
+        };
+    }
 
     // ===== DTO Classes for Four.Meme API Response =====
 

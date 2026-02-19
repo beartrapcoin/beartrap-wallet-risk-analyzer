@@ -35,12 +35,13 @@ public sealed class FourMemeSource : IFourMemeMainListSource
         return await _fourMemeClient.GetMainListAsync(pageSize, ct);
     }
 
-    public async Task<IReadOnlyList<TokenDto>> QueryTokensAsync(string? tokenName, int pageIndex, int pageSize, CancellationToken ct)
+    public async Task<IReadOnlyList<TokenDto>> QueryTokensAsync(string? tokenName, FourMemeOrderBy orderBy, int pageIndex, int pageSize, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
 
         var normalizedQuery = (tokenName ?? string.Empty).Trim();
         var isSearchMode = !string.IsNullOrWhiteSpace(normalizedQuery);
+        var effectiveOrderBy = isSearchMode ? FourMemeOrderBy.Query : orderBy;
 
         var safePageIndex = Math.Max(1, pageIndex);
         var safePageSize = isSearchMode
@@ -49,20 +50,20 @@ public sealed class FourMemeSource : IFourMemeMainListSource
 
         if (isSearchMode)
         {
-            var cacheKey = $"fourmeme:query:{normalizedQuery.ToLowerInvariant()}:{safePageIndex}:{safePageSize}";
+            var cacheKey = $"fourmeme:query:{normalizedQuery.ToLowerInvariant()}:{effectiveOrderBy}:{safePageIndex}:{safePageSize}";
             if (_memoryCache.TryGetValue(cacheKey, out IReadOnlyList<TokenDto>? cached) && cached is not null)
             {
                 return cached;
             }
 
-            var queriedTokens = await _fourMemeClient.QueryTokensAsync(normalizedQuery, safePageIndex, safePageSize, ct);
+            var queriedTokens = await _fourMemeClient.QueryTokensAsync(normalizedQuery, effectiveOrderBy, safePageIndex, safePageSize, ct);
             var queriedDtos = queriedTokens.Select(MapToDto).ToList();
 
             _memoryCache.Set(cacheKey, queriedDtos, SearchCacheTtl);
             return queriedDtos;
         }
 
-        var latestTokens = await _fourMemeClient.QueryTokensAsync(null, safePageIndex, safePageSize, ct);
+        var latestTokens = await _fourMemeClient.QueryTokensAsync(null, effectiveOrderBy, safePageIndex, safePageSize, ct);
         return latestTokens.Select(MapToDto).ToList();
     }
 
