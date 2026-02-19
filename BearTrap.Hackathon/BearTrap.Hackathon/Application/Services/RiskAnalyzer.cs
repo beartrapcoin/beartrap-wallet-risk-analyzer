@@ -24,6 +24,22 @@ public sealed class RiskAnalyzer
         "token", "coin", "bnb", "moon", "inu", "ai", "100x", "pump", "profit", "doge", "safe", "elon"
     };
 
+    private static readonly HashSet<string> SuspiciousAllowlist = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "beartrap",
+        "bear"
+    };
+
+    private static readonly HashSet<string> SuspiciousKeywords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "airdrop", "claim", "bonus", "reward", "gift", "support", "help",
+        "verify", "verification", "official", "giveaway", "refund",
+        "v2", "v3", "migration", "relaunch",
+        "elon", "tesla", "binance", "bnb", "cz", "metamask",
+        "usdt", "usdc", "eth", "btc",
+        "free", "promo", "sale", "presale"
+    };
+
     public RiskAnalyzer(
         AppDbContext db,
         IFourMemeSource fourMemeSource,
@@ -65,8 +81,31 @@ public sealed class RiskAnalyzer
 
         var nameCounts = tokenList
             .Where(t => !string.IsNullOrWhiteSpace(t.Name))
-            .GroupBy(t => t.Name.Trim().ToLowerInvariant())
+            .GroupBy(t => NormalizeTokenName(t.Name))
             .ToDictionary(g => g.Key, g => g.Count());
+
+        var firstContractForName = tokenList
+            .Select((token, index) => new
+            {
+                Token = token,
+                Index = index,
+                NameKey = NormalizeTokenName(token.Name)
+            })
+            .Where(x => !string.IsNullOrWhiteSpace(x.NameKey))
+            .GroupBy(x => x.NameKey)
+            .ToDictionary(
+                g => g.Key,
+                g =>
+                {
+                    var withCreatedAt = g
+                        .Where(x => x.Token.CreatedAt != default)
+                        .OrderBy(x => x.Token.CreatedAt)
+                        .ThenBy(x => x.Index)
+                        .FirstOrDefault();
+
+                    var first = withCreatedAt ?? g.OrderBy(x => x.Index).First();
+                    return NormalizeAddress(first.Token.Address);
+                });
 
         // --- Step 2: Ensure all token snapshots exist ---
         foreach (var token in tokenList)
@@ -105,7 +144,7 @@ public sealed class RiskAnalyzer
             var flags = new List<RiskFlag>();
 
             // Batch-based flags
-            AnalyzeBatchFlags(token, creatorCounts, nameCounts, flags);
+            AnalyzeBatchFlags(token, creatorCounts, nameCounts, firstContractForName, flags);
 
             // Database-based flags
             await AnalyzeDatabaseFlagsAsync(token, flags, ct);
@@ -127,6 +166,7 @@ public sealed class RiskAnalyzer
         LatestToken token,
         Dictionary<string, int> creatorCounts,
         Dictionary<string, int> nameCounts,
+        Dictionary<string, string> firstContractForName,
         List<RiskFlag> flags)
     {
         // CREATOR_BURST (+30): Same creator appears >= 3 times in batch
@@ -144,10 +184,15 @@ public sealed class RiskAnalyzer
         }
 
         // DUPLICATE_NAME_IN_BATCH (+20): Name appears > 1 time in batch
-        var nameKey = token.Name?.Trim().ToLowerInvariant() ?? "";
+        var nameKey = NormalizeTokenName(token.Name);
         if (!string.IsNullOrWhiteSpace(nameKey) && nameCounts.TryGetValue(nameKey, out var nameCount))
         {
-            if (nameCount > 1)
+            var tokenAddress = NormalizeAddress(token.Address);
+            var hasFirst = firstContractForName.TryGetValue(nameKey, out var firstContractAddress);
+            var duplicateName = hasFirst && !string.Equals(tokenAddress, firstContractAddress, StringComparison.Ordinal);
+
+            // Hackathon: only tokens after the first occurrence are marked as duplicates
+            if (nameCount > 1 && duplicateName)
             {
                 flags.Add(new RiskFlag(
                     "DUPLICATE_NAME_IN_BATCH",
@@ -183,18 +228,22 @@ public sealed class RiskAnalyzer
                 35));
         }
 
-        // NAME_REUSED (+15): Exact name or symbol match in database
+        // Hackathon: NAME_REUSED only when the same creator reused the name or symbol
         var reused = await _db.TokenSnapshots
             .AnyAsync(x =>
                 x.Address != token.Address &&
-                (x.Name == token.Name || x.Symbol == token.Symbol), ct);
+                x.Creator == token.Creator &&
+                (
+                    x.Name == token.Name ||
+                    x.Symbol == token.Symbol
+                ), ct);
 
         if (reused)
         {
             flags.Add(new RiskFlag(
                 "NAME_REUSED",
-                "Name or symbol reused",
-                "Another token with the same name or symbol exists in local history.",
+                "Name reused by creator",
+                "The same creator has previously used this name or symbol.",
                 15));
         }
     }
@@ -251,22 +300,46 @@ public sealed class RiskAnalyzer
             }
         }
 
-        // NAME_SUS (+20): Suspicious name/symbol patterns (existing logic)
-        var nameUpper2 = name.ToUpperInvariant();
-        var symbolUpper = symbol.ToUpperInvariant();
-        var suspiciousKeywords = new[] { "BNB", "BINANCE", "USDT", "ETH" };
+        // NAME_SUS (+20): Suspicious name/symbol keywords (tokenized matching)
+        var normalizedName = NormalizeTokenName(token.Name);
+        var normalizedSymbol = NormalizeTokenName(token.Symbol);
 
-        var containsSuspicious = suspiciousKeywords.Any(k => nameUpper2.Contains(k) || symbolUpper.Contains(k));
-        var shortSymbol = symbol.Length > 0 && symbol.Length <= 2;
-        var symbolHasDigitsAndShort = symbol.Any(char.IsDigit) && symbol.Length <= 5;
+        var isAllowlisted =
+            (!string.IsNullOrWhiteSpace(normalizedName) && SuspiciousAllowlist.Contains(normalizedName)) ||
+            (!string.IsNullOrWhiteSpace(normalizedSymbol) && SuspiciousAllowlist.Contains(normalizedSymbol));
 
-        if (containsSuspicious || shortSymbol || symbolHasDigitsAndShort)
+        var suspicious = false;
+        if (!isAllowlisted)
+        {
+            var combined = $"{name} {symbol}".ToLowerInvariant();
+            var parts = Regex.Split(combined, "[^a-z0-9]+")
+                .Where(p => !string.IsNullOrWhiteSpace(p));
+
+            suspicious = parts.Any(p => SuspiciousKeywords.Contains(p));
+        }
+
+        if (suspicious)
         {
             flags.Add(new RiskFlag(
                 "NAME_SUS",
                 "Suspicious name or symbol",
-                "Name or symbol contains popular token names, is very short, or contains digits with short length.",
+                "Name contains common scam / phishing keywords.",
                 20));
         }
     }
+
+    private static string NormalizeTokenName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return string.Empty;
+        }
+
+        var raw = name.Trim().ToLowerInvariant();
+        var filtered = raw.Where(ch => !char.IsWhiteSpace(ch) && ch != '-' && ch != '_');
+        return new string(filtered.ToArray());
+    }
+
+    private static string NormalizeAddress(string? address)
+        => (address ?? string.Empty).Trim().ToLowerInvariant();
 }
