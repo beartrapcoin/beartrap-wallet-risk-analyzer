@@ -15,7 +15,7 @@ public static class RiskFlags
     {
         // Existing flags
         ["CREATOR_SPAM"] = ("Creator burst deploys", SeverityHigh, 35),
-        ["NAME_SUS"] = ("Suspicious name", SeverityMedium, 20),
+        ["NAME_SUS"] = ("Suspicious name", SeverityMedium, 10),
         ["NAME_REUSED"] = ("Name reused", SeverityMedium, 15),
 
         // New batch-based flags

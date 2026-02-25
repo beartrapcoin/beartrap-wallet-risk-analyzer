@@ -4,6 +4,7 @@ using BearTrap.Hackathon.Data.Entities;
 using BearTrap.Hackathon.Domain;
 using BearTrap.Hackathon.Services.DataSources;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using System.Text.RegularExpressions;
 
 namespace BearTrap.Hackathon.Application.Services;
@@ -17,6 +18,7 @@ public sealed class RiskAnalyzer
     private readonly AppDbContext _db;
     private readonly IFourMemeSource _fourMemeSource;
     private readonly IBnbRpcClient _bnbRpcClient;
+    private readonly ILogger<RiskAnalyzer> _logger;
 
     // Generic scam keywords for NAME_TOO_GENERIC flag
     private static readonly string[] GenericScamKeywords = new[]
@@ -24,30 +26,26 @@ public sealed class RiskAnalyzer
         "token", "coin", "bnb", "moon", "inu", "ai", "100x", "pump", "profit", "doge", "safe", "elon"
     };
 
-    private static readonly HashSet<string> SuspiciousAllowlist = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "beartrap",
-        "bear"
-    };
+    private const string SuspiciousScamActionPattern = @"\b(airdrop|claim|free|giveaway|bonus|presale)\b";
 
-    private static readonly HashSet<string> SuspiciousKeywords = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "airdrop", "claim", "bonus", "reward", "gift", "support", "help",
-        "verify", "verification", "official", "giveaway", "refund",
-        "v2", "v3", "migration", "relaunch",
-        "elon", "tesla", "binance", "bnb", "cz", "metamask",
-        "usdt", "usdc", "eth", "btc",
-        "free", "promo", "sale", "presale"
-    };
+    private static readonly RegexOptions SuspiciousRegexOptions = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
+
+    private static readonly char[] SuspiciousSpecialChars = ['_', '-', '#', '@', '$', '%', '*'];
+
+    private static bool _heuristicExamplesLogged;
 
     public RiskAnalyzer(
         AppDbContext db,
         IFourMemeSource fourMemeSource,
-        IBnbRpcClient bnbRpcClient)
+        IBnbRpcClient bnbRpcClient,
+        ILogger<RiskAnalyzer> logger)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
         _fourMemeSource = fourMemeSource ?? throw new ArgumentNullException(nameof(fourMemeSource));
         _bnbRpcClient = bnbRpcClient ?? throw new ArgumentNullException(nameof(bnbRpcClient));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+
+        LogSuspiciousHeuristicExamples();
     }
 
     /// <summary>
@@ -317,31 +315,93 @@ public sealed class RiskAnalyzer
             }
         }
 
-        // NAME_SUS (+20): Suspicious name/symbol keywords (tokenized matching)
-        var normalizedName = NormalizeTokenName(token.Name);
-        var normalizedSymbol = NormalizeTokenName(token.Symbol);
+        // NAME_SUS (+10): hard-trigger-only suspicious name detection with debug reason
+        var suspiciousReason = DetectSuspiciousNameReason(name, symbol);
 
-        var isAllowlisted =
-            (!string.IsNullOrWhiteSpace(normalizedName) && SuspiciousAllowlist.Contains(normalizedName)) ||
-            (!string.IsNullOrWhiteSpace(normalizedSymbol) && SuspiciousAllowlist.Contains(normalizedSymbol));
-
-        var suspicious = false;
-        if (!isAllowlisted)
+        if (!string.IsNullOrWhiteSpace(suspiciousReason) && !flags.Any(flag => flag.Code == "NAME_SUS"))
         {
-            var combined = $"{name} {symbol}".ToLowerInvariant();
-            var parts = Regex.Split(combined, "[^a-z0-9]+")
-                .Where(p => !string.IsNullOrWhiteSpace(p));
+            flags.Add(CreateFlag("NAME_SUS", suspiciousReason));
+        }
+    }
 
-            suspicious = parts.Any(p => SuspiciousKeywords.Contains(p));
+    private static string? DetectSuspiciousNameReason(string name, string symbol)
+    {
+        var text = $"{name} {symbol}".Trim();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
         }
 
-        if (suspicious)
+        var normalizedText = text.Trim();
+
+        if (TryMatchPattern(normalizedText, SuspiciousScamActionPattern, out var actionMatch))
         {
-            flags.Add(new RiskFlag(
-                "NAME_SUS",
-                "Suspicious name or symbol",
-                "Name contains common scam / phishing keywords.",
-                20));
+            return $"matched action word: {actionMatch}";
+        }
+
+        if (ContainsUrl(normalizedText))
+        {
+            return "contains URL";
+        }
+
+        var specialCount = CountSuspiciousSpecialChars(normalizedText);
+        if (specialCount >= 1)
+        {
+            return $"too many special chars: {specialCount}";
+        }
+
+        return null;
+    }
+
+    private static bool TryMatchPattern(string text, string pattern, out string matchValue)
+    {
+        matchValue = string.Empty;
+
+        var match = Regex.Match(text, pattern, SuspiciousRegexOptions);
+        if (match.Success)
+        {
+            matchValue = match.Value;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool ContainsUrl(string text)
+        => Regex.IsMatch(text, @"(https?://|www\.|\.com\b|\.io\b|\.net\b)", SuspiciousRegexOptions);
+
+    private static int CountSuspiciousSpecialChars(string text)
+        => text.Count(ch => SuspiciousSpecialChars.Contains(ch));
+
+    private static RiskFlag CreateFlag(string code, string reason)
+        => code switch
+        {
+            "NAME_SUS" => new RiskFlag("NAME_SUS", "Suspicious name", reason, 10),
+            _ => new RiskFlag(code, code, reason, 0)
+        };
+
+    private void LogSuspiciousHeuristicExamples()
+    {
+        if (_heuristicExamplesLogged)
+        {
+            return;
+        }
+
+        _heuristicExamplesLogged = true;
+
+        var examples = new (string Name, string Symbol)[]
+        {
+            ("Toshi", "TOSHI"),
+            ("GMon", "GMON"),
+            ("GitBadak", "GB"),
+            ("Free Airdrop", "FAC"),
+            ("SuperToken www.scam.com", "ST")
+        };
+
+        foreach (var sample in examples)
+        {
+            var reason = DetectSuspiciousNameReason(sample.Name, sample.Symbol);
+            _logger.LogInformation("Suspicious-name heuristic sample '{Name}'/'{Symbol}' => {Result}", sample.Name, sample.Symbol, reason ?? "null");
         }
     }
 
