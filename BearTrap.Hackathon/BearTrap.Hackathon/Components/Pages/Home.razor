@@ -122,10 +122,25 @@
                                                    @onclick:preventDefault="true"
                                                    @onclick="() => CopyToClipboard(row.Token.Address)"
                                                    title="Copy token address">@Short(row.Token.Address)</a>
-                                                <button type="button"
-                                                        class="addr-copy" 
-                                                        @onclick="() => CopyToClipboard(row.Token.Address)"
-                                                        title="Copy token address">⧉</button>
+                                                <span class="addr-actions">
+                                                    <button type="button"
+                                                            class="addr-copy"
+                                                            @onclick="() => CopyToClipboard(row.Token.Address)"
+                                                            title="Copy token address">⧉</button>
+                                                    <a href="@GetFourMemeTokenUrl(row.Token.Address)"
+                                                       class="addr-open"
+                                                       title="Open on Four.meme"
+                                                       target="_blank"
+                                                       rel="noopener noreferrer"
+                                                       @onclick:stopPropagation="true"
+                                                       aria-label="Open token on Four.meme">
+                                                        <svg viewBox="0 0 24 24" width="13" height="13" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+                                                            <path d="M14 5h5v5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                                                            <path d="M10 14L19 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                                                            <path d="M19 14v5h-14v-14h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                                                        </svg>
+                                                    </a>
+                                                </span>
                                             </div>
                                             <div class="addr-row">
                                                 <span class="addr-label">Creator</span>
@@ -134,10 +149,28 @@
                                                    @onclick:preventDefault="true"
                                                    @onclick="() => CopyToClipboard(row.Token.Creator)"
                                                    title="Copy creator address">@Short(row.Token.Creator)</a>
-                                                <button type="button"
-                                                        class="addr-copy" 
-                                                        @onclick="() => CopyToClipboard(row.Token.Creator)"
-                                                        title="Copy creator address">⧉</button>
+                                                <span class="addr-actions">
+                                                    <button type="button"
+                                                            class="addr-copy"
+                                                            @onclick="() => CopyToClipboard(row.Token.Creator)"
+                                                            title="Copy creator address">⧉</button>
+                                                    @if (!string.IsNullOrWhiteSpace(row.Token.CreatorUserId))
+                                                    {
+                                                        <a href="@GetFourMemeUserUrl(row.Token.CreatorUserId)"
+                                                           class="addr-open"
+                                                           title="Open on Four.meme"
+                                                           target="_blank"
+                                                           rel="noopener noreferrer"
+                                                           @onclick:stopPropagation="true"
+                                                           aria-label="Open creator on Four.meme">
+                                                            <svg viewBox="0 0 24 24" width="13" height="13" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+                                                                <path d="M14 5h5v5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                                                                <path d="M10 14L19 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                                                                <path d="M19 14v5h-14v-14h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                                                            </svg>
+                                                        </a>
+                                                    }
+                                                </span>
                                             </div>
                                         </div>
                                     </div>
@@ -821,7 +854,16 @@
         outline: none;
     }
 
-    .addr-copy {
+    .addr-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: auto;
+        flex-shrink: 0;
+    }
+
+    .addr-copy,
+    .addr-open {
         width: 22px;
         height: 22px;
         padding: 0;
@@ -836,14 +878,18 @@
         justify-content: center;
         color: var(--bt-ink-2);
         flex-shrink: 0;
+        text-decoration: none;
     }
 
     .addr-copy:hover,
-    .addr-copy:focus-visible {
+    .addr-copy:focus-visible,
+    .addr-open:hover,
+    .addr-open:focus-visible {
         background: rgba(242,193,78,0.14);
         border-color: rgba(201,146,26,0.34);
         color: var(--bt-ink-0);
         outline: none;
+        text-decoration: none;
     }
     
     /* ========================================
@@ -1347,6 +1393,12 @@
 
     private static string ToCssPercent(decimal value)
         => $"{ClampProgressPercent(value).ToString("0.##", CultureInfo.InvariantCulture)}%";
+
+    private static string GetFourMemeTokenUrl(string? address)
+        => $"https://four.meme/token/{Uri.EscapeDataString((address ?? string.Empty).Trim())}";
+
+    private static string GetFourMemeUserUrl(string? creatorUserId)
+        => $"https://four.meme/user/{Uri.EscapeDataString((creatorUserId ?? string.Empty).Trim())}";
 }
 
 @code {
@@ -1681,7 +1733,8 @@
                     ImageUrl: dto.ImageUrl,
                     ProgressPercent: dto.ProgressPercent.HasValue
                         ? ClampProgressPercent(dto.ProgressPercent.Value)
-                        : null);
+                        : null,
+                    CreatorUserId: dto.CreatorUserId);
             }
             finally
             {

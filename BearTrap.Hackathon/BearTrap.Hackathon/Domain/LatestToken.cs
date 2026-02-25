@@ -7,5 +7,6 @@ public sealed record LatestToken(
     string Creator,
     DateTimeOffset CreatedAt,
     string? ImageUrl = null,
-    decimal? ProgressPercent = null
+    decimal? ProgressPercent = null,
+    string? CreatorUserId = null
 );

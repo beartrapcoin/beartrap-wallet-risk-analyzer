@@ -102,7 +102,8 @@ public sealed class FourMemeClient : IFourMemeClient
                 Creator: x.UserAddress?.Trim() ?? string.Empty,
                 CreatedAt: FromUnixMs(x.LaunchTime),
                 ImageUrl: x.Image?.Trim(),
-                ProgressPercent: ExtractProgressPercent(x)))
+                ProgressPercent: ExtractProgressPercent(x),
+                CreatorUserId: ExtractCreatorUserId(x)))
             .ToList();
     }
 
@@ -201,6 +202,21 @@ public sealed class FourMemeClient : IFourMemeClient
         }
 
         return Math.Clamp(value, 0m, 100m);
+    }
+
+    private static string? ExtractCreatorUserId(FourMemeTokenDto token)
+    {
+        if (token.Extra is null || !TryGetJsonElement(token.Extra, "userId", out var userIdElement))
+        {
+            return null;
+        }
+
+        if (userIdElement.ValueKind == JsonValueKind.Number && userIdElement.TryGetInt64(out var userId))
+        {
+            return userId.ToString(CultureInfo.InvariantCulture);
+        }
+
+        return null;
     }
 
     private static decimal? TryGetProgressFromExtra(Dictionary<string, JsonElement>? extra)
