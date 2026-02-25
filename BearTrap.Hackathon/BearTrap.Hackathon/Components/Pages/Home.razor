@@ -805,19 +805,23 @@
     }
     
     .addr-stack {
-        display: inline-flex;
+        display: flex;
         flex-direction: column;
         align-items: flex-start;
         gap: 4px;
+        width: 100%;
+        min-width: 0;
         max-width: 360px;
     }
 
     .addr-row {
-        display: inline-flex;
+        display: flex;
         align-items: center;
-        gap: 10px;
-        width: fit-content;
+        gap: 8px;
+        width: 100%;
+        min-width: 0;
         max-width: 100%;
+        overflow: hidden;
         background: rgba(255,255,255,0.35);
         border: 1px solid rgba(201,146,26,0.22);
         border-radius: 10px;
@@ -825,6 +829,7 @@
     }
 
     .addr-label {
+        flex: 0 0 54px;
         min-width: 54px;
         font-size: 0.69rem;
         font-weight: 600;
@@ -835,8 +840,8 @@
 
     .addr-value {
         min-width: 0;
-        flex: 0 1 auto;
-        max-width: 220px;
+        flex: 1 1 auto;
+        max-width: none;
         font-size: 0.78rem;
         font-weight: 500;
         color: var(--bt-ink-1);
@@ -859,10 +864,11 @@
     }
 
     .addr-actions {
-        display: inline-flex;
+        display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 6px;
         margin-left: auto;
+        flex: 0 0 auto;
         flex-shrink: 0;
     }
 
@@ -1367,6 +1373,45 @@
 
         .tcard-top {
             padding-right: 104px;
+        }
+    }
+
+    @@media (max-width: 560px) {
+        .addr-row {
+            gap: 6px;
+            padding: 4px 8px;
+        }
+
+        .addr-label {
+            flex: 0 0 44px;
+            min-width: 44px;
+            font-size: 0.66rem;
+        }
+
+        .addr-actions {
+            gap: 4px;
+        }
+
+        .addr-copy,
+        .addr-open {
+            width: 20px;
+            height: 20px;
+        }
+
+        .addr-value {
+            font-size: 0.74rem;
+            max-width: 100%;
+        }
+    }
+
+    @@media (max-width: 420px) {
+        .addr-row {
+            padding: 4px 7px;
+        }
+
+        .addr-label {
+            flex-basis: 40px;
+            min-width: 40px;
         }
     }
 </style>
