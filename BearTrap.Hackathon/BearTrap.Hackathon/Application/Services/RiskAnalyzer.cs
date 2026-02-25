@@ -84,6 +84,11 @@ public sealed class RiskAnalyzer
             .GroupBy(t => NormalizeTokenName(t.Name))
             .ToDictionary(g => g.Key, g => g.Count());
 
+        var imageUrlCounts = tokenList
+            .Where(t => !string.IsNullOrWhiteSpace(t.ImageUrl))
+            .GroupBy(t => t.ImageUrl!.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+
         var firstContractForName = tokenList
             .Select((token, index) => new
             {
@@ -144,7 +149,7 @@ public sealed class RiskAnalyzer
             var flags = new List<RiskFlag>();
 
             // Batch-based flags
-            AnalyzeBatchFlags(token, creatorCounts, nameCounts, firstContractForName, flags);
+            AnalyzeBatchFlags(token, creatorCounts, nameCounts, firstContractForName, imageUrlCounts, flags);
 
             // Database-based flags
             await AnalyzeDatabaseFlagsAsync(token, flags, ct);
@@ -167,6 +172,7 @@ public sealed class RiskAnalyzer
         Dictionary<string, int> creatorCounts,
         Dictionary<string, int> nameCounts,
         Dictionary<string, string> firstContractForName,
+        Dictionary<string, int> imageUrlCounts,
         List<RiskFlag> flags)
     {
         // CREATOR_BURST (+30): Same creator appears >= 3 times in batch
@@ -200,6 +206,17 @@ public sealed class RiskAnalyzer
                     $"Name '{token.Name}' appears {nameCount} times in this batch.",
                     20));
             }
+        }
+
+        // IMAGE_REUSED (+10): Same image URL appears > 1 time in current list
+        var imageUrl = token.ImageUrl?.Trim();
+        if (!string.IsNullOrWhiteSpace(imageUrl) && imageUrlCounts.TryGetValue(imageUrl, out var imageCount) && imageCount > 1)
+        {
+            flags.Add(new RiskFlag(
+                "IMAGE_REUSED",
+                "Image reused",
+                "Another token in the current list uses the same image URL.",
+                10));
         }
     }
 

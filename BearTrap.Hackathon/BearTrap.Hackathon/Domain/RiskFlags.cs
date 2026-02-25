@@ -21,6 +21,7 @@ public static class RiskFlags
         // New batch-based flags
         ["CREATOR_BURST"] = ("Creator burst", SeverityHigh, 30),
         ["DUPLICATE_NAME_IN_BATCH"] = ("Duplicate name", SeverityMedium, 20),
+        ["IMAGE_REUSED"] = ("Image reused", SeverityLow, 10),
         ["SYMBOL_TOO_SHORT"] = ("Short symbol", SeverityLow, 10),
         ["SYMBOL_RANDOMIZED"] = ("Random symbol", SeverityMedium, 15),
         ["NAME_TOO_GENERIC"] = ("Generic hype", SeverityMedium, 15)
