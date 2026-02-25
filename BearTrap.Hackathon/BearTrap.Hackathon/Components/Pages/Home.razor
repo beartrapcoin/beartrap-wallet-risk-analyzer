@@ -121,7 +121,7 @@
                                                    class="addr-value"
                                                    @onclick:preventDefault="true"
                                                    @onclick="() => CopyToClipboard(row.Token.Address)"
-                                                   title="Copy token address">@Short(row.Token.Address)</a>
+                                                                    title="Copy token address">@row.Token.Address</a>
                                                 <span class="addr-actions">
                                                     <button type="button"
                                                             class="addr-copy"
@@ -148,7 +148,7 @@
                                                    class="addr-value"
                                                    @onclick:preventDefault="true"
                                                    @onclick="() => CopyToClipboard(row.Token.Creator)"
-                                                   title="Copy creator address">@Short(row.Token.Creator)</a>
+                                                                    title="Copy creator address">@row.Token.Creator</a>
                                                 <span class="addr-actions">
                                                     <button type="button"
                                                             class="addr-copy"
@@ -1471,11 +1471,6 @@
 </script>
 
 @code {
-    private static string Short(string? a)
-        => string.IsNullOrWhiteSpace(a) || a.Length < 10
-            ? (a ?? "")
-            : $"{a[..6]}…{a[^4..]}";
-
     private static string GetScoreSeverity(int score)
     {
         if (score >= 60) return "danger";
