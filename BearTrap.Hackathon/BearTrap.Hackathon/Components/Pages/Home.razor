@@ -1831,7 +1831,11 @@
                     ProgressPercent: dto.ProgressPercent.HasValue
                         ? ClampProgressPercent(dto.ProgressPercent.Value)
                         : null,
-                    CreatorUserId: dto.CreatorUserId);
+                    CreatorUserId: dto.CreatorUserId,
+                    WebUrl: dto.WebUrl,
+                    TelegramUrl: dto.TelegramUrl,
+                    TwitterUrl: dto.TwitterUrl,
+                    ModifiedAt: dto.ModifiedAt);
             }
             finally
             {

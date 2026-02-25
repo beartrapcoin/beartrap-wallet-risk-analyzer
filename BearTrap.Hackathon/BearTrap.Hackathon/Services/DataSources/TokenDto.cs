@@ -8,5 +8,9 @@ public sealed record TokenDto(
     DateTimeOffset CreatedAt,
     string? ImageUrl,
     decimal? ProgressPercent,
-    string? CreatorUserId = null
+    string? CreatorUserId = null,
+    string? WebUrl = null,
+    string? TelegramUrl = null,
+    string? TwitterUrl = null,
+    DateTimeOffset? ModifiedAt = null
 );

@@ -17,6 +17,8 @@ public static class RiskFlags
         ["CREATOR_SPAM"] = ("Creator burst deploys", SeverityHigh, 35),
         ["NAME_SUS"] = ("Suspicious name", SeverityMedium, 10),
         ["NAME_REUSED"] = ("Name reused", SeverityMedium, 15),
+        ["NO_SOCIALS"] = ("No socials", SeverityLow, 5),
+        ["METADATA_CHANGED"] = ("Metadata changed", SeverityLow, 5),
 
         // New batch-based flags
         ["CREATOR_BURST"] = ("Creator burst", SeverityHigh, 30),

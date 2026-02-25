@@ -95,15 +95,25 @@ public sealed class FourMemeClient : IFourMemeClient
 
         return data
             .Where(x => !string.IsNullOrWhiteSpace(x.Address))
-            .Select(x => new LatestToken(
-                Address: x.Address!.Trim().ToLowerInvariant(),
-                Name: x.ShortName?.Trim() ?? x.Name?.Trim() ?? string.Empty,
-                Symbol: x.Symbol?.Trim() ?? string.Empty,
-                Creator: x.UserAddress?.Trim() ?? string.Empty,
-                CreatedAt: FromUnixMs(x.LaunchTime),
-                ImageUrl: x.Image?.Trim(),
-                ProgressPercent: ExtractProgressPercent(x),
-                CreatorUserId: ExtractCreatorUserId(x)))
+            .Select(x =>
+            {
+                var createdAt = ParseUnixSecondsString(x.CreateDate) ?? FromUnixMs(x.LaunchTime);
+                var modifiedAt = ParseUnixSecondsString(x.ModifyDate);
+
+                return new LatestToken(
+                    Address: x.Address!.Trim().ToLowerInvariant(),
+                    Name: x.ShortName?.Trim() ?? x.Name?.Trim() ?? string.Empty,
+                    Symbol: x.Symbol?.Trim() ?? string.Empty,
+                    Creator: x.UserAddress?.Trim() ?? string.Empty,
+                    CreatedAt: createdAt,
+                    ImageUrl: x.Image?.Trim(),
+                    ProgressPercent: ExtractProgressPercent(x),
+                    CreatorUserId: ExtractCreatorUserId(x),
+                    WebUrl: x.WebUrl?.Trim(),
+                    TelegramUrl: x.TelegramUrl?.Trim(),
+                    TwitterUrl: x.TwitterUrl?.Trim(),
+                    ModifiedAt: modifiedAt);
+            })
             .ToList();
     }
 
@@ -155,6 +165,34 @@ public sealed class FourMemeClient : IFourMemeClient
 
     private static DateTimeOffset FromUnixMs(long? ms)
         => ms is null or <= 0 ? DateTimeOffset.UtcNow : DateTimeOffset.FromUnixTimeMilliseconds(ms.Value);
+
+    private static DateTimeOffset? ParseUnixSecondsString(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        if (long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var ts))
+        {
+            const long minUnixSeconds = -62135596800;
+            const long maxUnixSeconds = 253402300799;
+            const long minUnixMilliseconds = -62135596800000;
+            const long maxUnixMilliseconds = 253402300799999;
+
+            if (ts >= minUnixSeconds && ts <= maxUnixSeconds)
+            {
+                return DateTimeOffset.FromUnixTimeSeconds(ts);
+            }
+
+            if (ts >= minUnixMilliseconds && ts <= maxUnixMilliseconds)
+            {
+                return DateTimeOffset.FromUnixTimeMilliseconds(ts);
+            }
+        }
+
+        return null;
+    }
 
     private void LogQueryJsonPreview(string json)
     {
@@ -419,6 +457,21 @@ public sealed class FourMemeClient : IFourMemeClient
 
         [JsonPropertyName("launchTime")]
         public long? LaunchTime { get; set; }
+
+        [JsonPropertyName("webUrl")]
+        public string? WebUrl { get; set; }
+
+        [JsonPropertyName("telegramUrl")]
+        public string? TelegramUrl { get; set; }
+
+        [JsonPropertyName("twitterUrl")]
+        public string? TwitterUrl { get; set; }
+
+        [JsonPropertyName("createDate")]
+        public string? CreateDate { get; set; }
+
+        [JsonPropertyName("modifyDate")]
+        public string? ModifyDate { get; set; }
 
         [JsonPropertyName("bondingProgress")]
         [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]

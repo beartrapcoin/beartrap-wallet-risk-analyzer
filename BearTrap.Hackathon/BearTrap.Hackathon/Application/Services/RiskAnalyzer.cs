@@ -32,6 +32,9 @@ public sealed class RiskAnalyzer
 
     private static readonly char[] SuspiciousSpecialChars = ['_', '-', '#', '@', '$', '%', '*'];
 
+    private const string NoSocialsFlagCode = "NO_SOCIALS";
+    private const string MetadataChangedFlagCode = "METADATA_CHANGED";
+
     private static bool _heuristicExamplesLogged;
 
     public RiskAnalyzer(
@@ -322,6 +325,24 @@ public sealed class RiskAnalyzer
         {
             flags.Add(CreateFlag("NAME_SUS", suspiciousReason));
         }
+
+        var hasNoSocials = string.IsNullOrWhiteSpace(token.WebUrl)
+            && string.IsNullOrWhiteSpace(token.TelegramUrl)
+            && string.IsNullOrWhiteSpace(token.TwitterUrl);
+
+        if (hasNoSocials && !flags.Any(flag => flag.Code == NoSocialsFlagCode))
+        {
+            flags.Add(CreateFlag(NoSocialsFlagCode, "No website, Telegram or Twitter provided."));
+        }
+
+        if (token.ModifiedAt.HasValue)
+        {
+            var minutesDiff = (token.ModifiedAt.Value - token.CreatedAt).TotalMinutes;
+            if (minutesDiff >= 60 && !flags.Any(flag => flag.Code == MetadataChangedFlagCode))
+            {
+                flags.Add(CreateFlag(MetadataChangedFlagCode, $"Metadata modified {(int)Math.Round(minutesDiff)} minutes after creation."));
+            }
+        }
     }
 
     private static string? DetectSuspiciousNameReason(string name, string symbol)
@@ -377,6 +398,8 @@ public sealed class RiskAnalyzer
         => code switch
         {
             "NAME_SUS" => new RiskFlag("NAME_SUS", "Suspicious name", reason, 10),
+            NoSocialsFlagCode => new RiskFlag(NoSocialsFlagCode, "No socials", reason, 5),
+            MetadataChangedFlagCode => new RiskFlag(MetadataChangedFlagCode, "Metadata changed", reason, 5),
             _ => new RiskFlag(code, code, reason, 0)
         };
 

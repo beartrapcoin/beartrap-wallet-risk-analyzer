@@ -76,5 +76,9 @@ public sealed class FourMemeSource : IFourMemeMainListSource
             token.CreatedAt,
             token.ImageUrl,
             token.ProgressPercent,
-            token.CreatorUserId);
+            token.CreatorUserId,
+            token.WebUrl,
+            token.TelegramUrl,
+            token.TwitterUrl,
+            token.ModifiedAt);
 }
