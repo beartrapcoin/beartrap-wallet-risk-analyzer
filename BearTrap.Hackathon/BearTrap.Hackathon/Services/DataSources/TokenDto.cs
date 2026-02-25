@@ -6,5 +6,6 @@ public sealed record TokenDto(
     string Symbol,
     string Creator,
     DateTimeOffset CreatedAt,
-    string? ImageUrl
+    string? ImageUrl,
+    decimal? ProgressPercent
 );

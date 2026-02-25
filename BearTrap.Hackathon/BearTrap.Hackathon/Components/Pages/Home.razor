@@ -5,6 +5,7 @@
 @using BearTrap.Hackathon.Domain
 @using BearTrap.Hackathon.Application.Services
 @using BearTrap.Hackathon.Services.DataSources
+@using System.Globalization
 
 @inject IFourMemeSource FourMemeSource
 @inject IFourMemeMainListSource FourMemeMainListSource
@@ -203,6 +204,25 @@
                                 </div>
                             </div>
                             
+                            <div class="tcard-progress-section">
+                                @if (row.Token.ProgressPercent.HasValue)
+                                {
+                                    var progressPercent = row.Token.ProgressPercent.Value;
+
+                                    <div class="tcard-progress-header">
+                                        <span class="tcard-progress-label">Bonding Curve</span>
+                                        <span class="tcard-progress-value">@progressPercent.ToString("0")%</span>
+                                    </div>
+                                    <div class="bt-progress" role="progressbar" aria-label="Bonding Curve" aria-valuenow="@progressPercent" aria-valuemin="0" aria-valuemax="100">
+                                        <div class="bt-progress__bar" style="width: @ToCssPercent(progressPercent);"></div>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="tcard-progress-na">Bonding Curve: n/a</div>
+                                }
+                            </div>
+
                             <!-- Bottom Strip: Flags -->
                             <div class="tcard-bottom" id="@GetFlagsContainerId(row.Token.Address)" data-flags-token-key="@NormalizeTokenKey(row.Token.Address)">
                                 @{
@@ -262,17 +282,6 @@
                                     <span class="tchip tchip-clean">✓ Clean</span>
                                 }
                             </div>
-                            
-                            <!-- AI Analysis Button -->
-                            <div class="tcard-ai-section">
-                                <button type="button" 
-                                        class="btn-ai-analysis" 
-                                        @onclick="@(() => OpenAiModal(row.Token, row.Report))">
-                                    <span class="ai-icon">🤖</span>
-                                    <span class="ai-label">AI Analysis</span>
-                                    <span class="ai-badge">Beta</span>
-                                </button>
-                            </div>
                         </div>
                     }
                 </div>
@@ -292,63 +301,6 @@
         </div>
     </div>
 </div>
-
-<!-- AI Analysis Modal -->
-@if (_showAiModal)
-{
-    <div class="modal fade show" id="aiAnalysisModal" tabindex="-1" style="display: block; position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1050;" @onclick="CloseAiModal">
-        <div class="modal-dialog modal-dialog-centered" @onclick:stopPropagation="true">
-            <div class="modal-content ai-modal-content">
-                <div class="modal-header ai-modal-header">
-                    <h5 class="modal-title">
-                        <span class="ai-modal-icon">🧠</span>
-                        AI Risk Insight
-                        <span class="ai-modal-beta">Beta</span>
-                    </h5>
-                    <button type="button" class="btn-close" @onclick="CloseAiModal"></button>
-                </div>
-                <div class="modal-body ai-modal-body">
-                    @if (_aiLoading)
-                    {
-                        <div class="ai-loading-container">
-                            <div class="ai-spinner">
-                                <div class="spinner-border text-primary" role="status">
-                                    <span class="visually-hidden">Analyzing...</span>
-                                </div>
-                            </div>
-                            <p class="ai-loading-text">Analyzing token patterns...</p>
-                        </div>
-                    }
-                    else if (_aiAnalysisResult != null)
-                    {
-                        <div class="ai-results">
-                            <div class="ai-result-item">
-                                <span class="ai-result-label">Pattern similarity:</span>
-                                <span class="ai-result-value ai-value-@_aiAnalysisResult.PatternSimilaritySeverity">@_aiAnalysisResult.PatternSimilarity</span>
-                            </div>
-                            <div class="ai-result-item">
-                                <span class="ai-result-label">Behavioral anomaly:</span>
-                                <span class="ai-result-value ai-value-@_aiAnalysisResult.BehavioralAnomalySeverity">@_aiAnalysisResult.BehavioralAnomaly</span>
-                            </div>
-                            <div class="ai-result-item">
-                                <span class="ai-result-label">Confidence score:</span>
-                                <span class="ai-result-value ai-value-experimental">@_aiAnalysisResult.ConfidenceScore</span>
-                            </div>
-                            
-                            <div class="ai-disclaimer">
-                                <small class="text-muted">
-                                    <span class="disclaimer-icon">ℹ️</span>
-                                    AI module running in preview mode (mocked data for demo purposes).
-                                </small>
-                            </div>
-                        </div>
-                    }
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="modal-backdrop fade show" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1040;" @onclick="CloseAiModal"></div>
-}
 
 <style>
     /* ========================================
@@ -417,251 +369,54 @@
         margin-bottom: 18px;
     }
     
-    /* ========================================
-       AI ANALYSIS SECTION
-       ======================================== */
-    .tcard-ai-section {
-        padding: 8px 0 0 0;
-        margin-top: 8px;
+    .tcard-progress-section {
+        margin-top: 10px;
+        padding: 10px 0 0;
         border-top: 1px solid rgba(20,17,12,0.08);
-        position: relative;
-        z-index: 2;
     }
-    
-    .btn-ai-analysis {
-        width: 100%;
+
+    .tcard-progress-header {
         display: flex;
         align-items: center;
-        justify-content: center;
-        gap: 7px;
-        padding: 7px 12px;
-        background: linear-gradient(145deg, rgba(242,193,78,0.12), rgba(255,250,240,0.45));
-        border: 1px solid rgba(201,146,26,0.22);
-        border-radius: 9px;
-        font-size: 0.78rem;
-        font-weight: 600;
-        color: var(--bt-ink-1);
-        cursor: pointer;
-        transition: all 0.2s ease;
-        box-shadow: inset 0 1px 2px rgba(255,255,255,0.4);
-        position: relative;
-        z-index: 3;
-    }
-    
-    .btn-ai-analysis:hover {
-        background: linear-gradient(145deg, rgba(242,193,78,0.18), rgba(255,250,240,0.55));
-        border-color: rgba(201,146,26,0.32);
-        transform: translateY(-1px);
-        box-shadow: 0 2px 8px rgba(201,146,26,0.15), inset 0 1px 2px rgba(255,255,255,0.4);
-        color: var(--bt-ink-0);
-    }
-    
-    .btn-ai-analysis:active {
-        transform: translateY(0);
-        box-shadow: inset 0 1px 2px rgba(20,17,12,0.08);
-    }
-    
-    .ai-icon {
-        font-size: 0.9375rem;
-        line-height: 1;
-        opacity: 0.75;
-    }
-    
-    .ai-label {
-        flex: 1;
-        letter-spacing: -0.01em;
-    }
-    
-    .ai-badge {
-        font-size: 0.5625rem;
-        font-weight: 700;
-        padding: 2px 7px;
-        background: rgba(201,146,26,0.18);
-        border: 1px solid rgba(201,146,26,0.25);
-        border-radius: 6px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        color: var(--bt-ink-2);
-    }
-    
-    /* ========================================
-       AI MODAL STYLES
-       ======================================== */
-    .ai-modal-content {
-        border: 1px solid rgba(201,146,26,0.20);
-        border-radius: 16px;
-        box-shadow: 0 20px 60px rgba(20,17,12,0.25);
-        overflow: hidden;
-        background: linear-gradient(145deg, var(--bt-surface-0), var(--bt-surface-1));
-    }
-    
-    .ai-modal-header {
-        background: linear-gradient(135deg, rgba(242,193,78,0.14) 0%, rgba(255,250,240,0.45) 100%);
-        border-bottom: 1px solid rgba(201,146,26,0.22);
-        padding: 18px 24px;
-    }
-    
-    .ai-modal-header .modal-title {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        font-size: 1.375rem;
-        font-weight: 700;
-        color: var(--bt-ink-0);
-    }
-    
-    .ai-modal-icon {
-        font-size: 1.375rem;
-        line-height: 1;
-        opacity: 0.8;
-    }
-    
-    .ai-modal-beta {
-        font-size: 0.625rem;
-        font-weight: 700;
-        padding: 3px 8px;
-        background: rgba(201,146,26,0.18);
-        border: 1px solid rgba(201,146,26,0.25);
-        border-radius: 6px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        color: var(--bt-ink-2);
-    }
-    
-    .ai-modal-body {
-        padding: 28px 24px;
-        min-height: 200px;
-    }
-    
-    .ai-loading-container {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        min-height: 180px;
-        gap: 16px;
-    }
-    
-    .ai-spinner .spinner-border {
-        width: 3rem;
-        height: 3rem;
-        border-width: 0.3rem;
-        color: var(--bt-gold-1);
-    }
-    
-    .ai-loading-text {
-        font-size: 1rem;
-        color: var(--bt-ink-2);
-        margin: 0;
-        font-weight: 500;
-    }
-    
-    .ai-results {
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-    }
-    
-    .ai-result-item {
-        display: flex;
         justify-content: space-between;
-        align-items: center;
-        padding: 14px 16px;
-        background: linear-gradient(145deg, rgba(255,250,240,0.55) 0%, rgba(244,229,199,0.35) 100%);
-        border-radius: 10px;
-        border: 1px solid rgba(20,17,12,0.12);
-        box-shadow: inset 0 1px 2px rgba(255,255,255,0.3);
-    }
-    
-    .ai-result-label {
-        font-size: 0.9375rem;
-        font-weight: 600;
-        color: var(--bt-ink-1);
-    }
-    
-    .ai-result-value {
-        font-size: 0.9375rem;
-        font-weight: 700;
-        padding: 4px 12px;
-        border-radius: 6px;
-        border: 1px solid transparent;
-    }
-    
-    .ai-value-low {
-        background: rgba(46,125,87,0.15);
-        color: #2e7d57;
-        border-color: rgba(46,125,87,0.20);
-    }
-    
-    .ai-value-medium {
-        background: rgba(214,160,42,0.15);
-        color: #d6a02a;
-        border-color: rgba(214,160,42,0.20);
-    }
-    
-    .ai-value-high {
-        background: rgba(198,83,61,0.15);
-        color: #c6533d;
-        border-color: rgba(198,83,61,0.20);
-    }
-    
-    .ai-value-experimental {
-        background: rgba(201,146,26,0.15);
-        color: var(--bt-gold-1);
-        border: 1px solid rgba(201,146,26,0.20);
-    }
-    
-    .ai-disclaimer {
-        margin-top: 8px;
-        padding: 12px;
-        background: rgba(242,193,78,0.08);
-        border-radius: 8px;
-        border-left: 3px solid rgba(201,146,26,0.30);
-    }
-    
-    .ai-disclaimer small {
-        display: flex;
-        align-items: center;
+        margin-bottom: 7px;
         gap: 8px;
-        font-size: 0.8125rem;
-        line-height: 1.5;
     }
-    
-    .disclaimer-icon {
-        font-size: 1rem;
-        line-height: 1;
+
+    .tcard-progress-label {
+        font-size: 0.78rem;
+        font-weight: 700;
+        color: var(--bt-ink-1);
+        letter-spacing: 0.01em;
     }
-    
-    .modal-backdrop {
-        background-color: rgba(0, 0, 0, 0.5);
-        position: fixed;
-        top: 0;
-        left: 0;
+
+    .tcard-progress-value {
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: var(--bt-gold-1);
+    }
+
+    .tcard-progress-na {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--bt-ink-2);
+    }
+
+    .bt-progress {
         width: 100%;
+        height: 9px;
+        background: rgba(20,17,12,0.14);
+        border: 1px solid rgba(20,17,12,0.12);
+        border-radius: 999px;
+        overflow: hidden;
+    }
+
+    .bt-progress__bar {
         height: 100%;
-        z-index: 1040;
-    }
-    
-    .modal {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        z-index: 1050;
-        overflow: auto;
-        outline: 0;
-    }
-    
-    .modal-dialog {
-        position: relative;
-        width: auto;
-        margin: 1.75rem auto;
-        pointer-events: none;
-    }
-    
-    .modal-dialog > * {
-        pointer-events: auto;
+        width: 0;
+        background: linear-gradient(90deg, var(--bt-gold-1) 0%, var(--bt-gold-0) 100%);
+        border-radius: 999px;
+        transition: width 0.25s ease;
     }
     
     .dash-title {
@@ -1452,39 +1207,6 @@
             padding: 4px 8px;
         }
         
-        .tcard-ai-section {
-            padding: 8px 0 0 0;
-        }
-        
-        .btn-ai-analysis {
-            font-size: 0.75rem;
-            padding: 8px 12px;
-        }
-        
-        .ai-icon {
-            font-size: 0.875rem;
-        }
-        
-        .ai-badge {
-            font-size: 0.5rem;
-            padding: 2px 6px;
-        }
-        
-        .ai-modal-content {
-            margin: 12px;
-        }
-        
-        .ai-modal-header {
-            padding: 14px 18px;
-        }
-        
-        .ai-modal-header .modal-title {
-            font-size: 1.125rem;
-        }
-        
-        .ai-modal-body {
-            padding: 20px 18px;
-        }
     }
 
     @@media (max-width: 480px) {
@@ -1619,6 +1341,12 @@
         if (score >= 30) return "Medium";
         return "Low";
     }
+
+    private static decimal ClampProgressPercent(decimal value)
+        => Math.Clamp(value, 0m, 100m);
+
+    private static string ToCssPercent(decimal value)
+        => $"{ClampProgressPercent(value).ToString("0.##", CultureInfo.InvariantCulture)}%";
 }
 
 @code {
@@ -1643,23 +1371,6 @@
     private const int SearchPageSize = 20;
     private const int SearchMaxPages = 5;
     private const int EnrichmentMaxConcurrency = 4;
-    
-    // AI Analysis Modal state
-    private bool _showAiModal = false;
-    private bool _aiLoading = false;
-    private AiAnalysisResult? _aiAnalysisResult = null;
-    private LatestToken? _selectedToken = null;
-    private RiskReport? _selectedReport = null;
-    
-    // AI Analysis result model
-    private class AiAnalysisResult
-    {
-        public string PatternSimilarity { get; set; } = string.Empty;
-        public string PatternSimilaritySeverity { get; set; } = string.Empty;
-        public string BehavioralAnomaly { get; set; } = string.Empty;
-        public string BehavioralAnomalySeverity { get; set; } = string.Empty;
-        public string ConfidenceScore { get; set; } = string.Empty;
-    }
     
     private List<(LatestToken Token, RiskReport Report)> FilteredResults => _results;
 
@@ -1810,114 +1521,6 @@
         public int VisibleCount { get; set; }
     }
     
-    private async Task OpenAiModal(LatestToken token, RiskReport report)
-    {
-        try
-        {
-            Console.WriteLine($"Opening AI modal for token: {token.Name}");
-            
-            _selectedToken = token;
-            _selectedReport = report;
-            _showAiModal = true;
-            _aiLoading = true;
-            _aiAnalysisResult = null;
-            
-            StateHasChanged();
-            
-            // Simulate AI analysis delay (1-2 seconds)
-            await Task.Delay(1500);
-            
-            // Generate mock AI analysis data
-            _aiAnalysisResult = GenerateMockAiAnalysis(token, report);
-            _aiLoading = false;
-            
-            StateHasChanged();
-            
-            Console.WriteLine("AI modal opened successfully");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error opening AI modal: {ex.Message}");
-        }
-    }
-    
-    private void CloseAiModal()
-    {
-        _showAiModal = false;
-        _aiLoading = false;
-        _aiAnalysisResult = null;
-        _selectedToken = null;
-        _selectedReport = null;
-    }
-    
-    private AiAnalysisResult GenerateMockAiAnalysis(LatestToken token, RiskReport report)
-    {
-        // Generate realistic mock data based on risk score
-        // This is where you would call a real AI API in production
-        
-        var random = new Random(token.Address.GetHashCode());
-        var score = report.Score;
-        
-        // Pattern similarity based on risk score
-        string patternSimilarity;
-        string patternSeverity;
-        
-        if (score >= 60)
-        {
-            var patterns = new[] { "High", "Very High", "Critical" };
-            patternSimilarity = patterns[random.Next(patterns.Length)];
-            patternSeverity = "high";
-        }
-        else if (score >= 30)
-        {
-            var patterns = new[] { "Medium", "Moderate", "Elevated" };
-            patternSimilarity = patterns[random.Next(patterns.Length)];
-            patternSeverity = "medium";
-        }
-        else
-        {
-            var patterns = new[] { "Low", "Minimal", "Normal" };
-            patternSimilarity = patterns[random.Next(patterns.Length)];
-            patternSeverity = "low";
-        }
-        
-        // Behavioral anomaly detection
-        string behavioralAnomaly;
-        string behavioralSeverity;
-        
-        if (score >= 60)
-        {
-            var anomalies = new[] { "Detected", "Multiple Detected", "Critical Detected" };
-            behavioralAnomaly = anomalies[random.Next(anomalies.Length)];
-            behavioralSeverity = "high";
-        }
-        else if (score >= 30)
-        {
-            var anomalies = new[] { "Detected", "Minor Detected", "Possible" };
-            behavioralAnomaly = anomalies[random.Next(anomalies.Length)];
-            behavioralSeverity = "medium";
-        }
-        else
-        {
-            var anomalies = new[] { "Not Detected", "Clear", "Normal" };
-            behavioralAnomaly = anomalies[random.Next(anomalies.Length)];
-            behavioralSeverity = "low";
-        }
-        
-        // Confidence score - always experimental for now
-        var confidenceScores = new[] { "Experimental", "Beta Quality", "Preview Mode" };
-        var confidenceScore = confidenceScores[random.Next(confidenceScores.Length)];
-        
-        return new AiAnalysisResult
-        {
-            PatternSimilarity = patternSimilarity,
-            PatternSimilaritySeverity = patternSeverity,
-            BehavioralAnomaly = behavioralAnomaly,
-            BehavioralAnomalySeverity = behavioralSeverity,
-            ConfidenceScore = confidenceScore
-        };
-    }
-
     protected override async Task OnInitializedAsync()
     {
         await Task.CompletedTask;
@@ -2075,7 +1678,10 @@
                     Symbol: dto.Symbol,
                     Creator: dto.Creator,
                     CreatedAt: dto.CreatedAt,
-                    ImageUrl: dto.ImageUrl);
+                    ImageUrl: dto.ImageUrl,
+                    ProgressPercent: dto.ProgressPercent.HasValue
+                        ? ClampProgressPercent(dto.ProgressPercent.Value)
+                        : null);
             }
             finally
             {
