@@ -112,7 +112,7 @@
                                     <div class="tmeta token-addresses">
                                         <div class="tname-row">
                                             <div class="tname">@row.Token.Name</div>
-                                            <span class="tchain-pill">BNB</span>
+                                            <span class="tchain-pill">@(!string.IsNullOrWhiteSpace(row.Token.Symbol) ? row.Token.Symbol : "-")</span>
                                         </div>
                                         <div class="addr-stack">
                                             <div class="addr-row">
