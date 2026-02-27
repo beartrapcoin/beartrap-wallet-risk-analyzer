@@ -346,7 +346,13 @@
                     <strong>Detected reason:</strong>
                     <span id="risk-single-reason"></span>
                 </div>
+                <button type="button" id="risk-back-hidden" class="risk-modal-btn is-hidden">Back to hidden risks</button>
                 <button type="button" id="risk-show-all" class="risk-modal-btn">Show all risk categories</button>
+            </div>
+
+            <div id="risk-hidden-view" class="is-hidden">
+                <h4 class="risk-single-title">Hidden risks for this token</h4>
+                <div id="risk-hidden-list" class="risk-hidden-list"></div>
             </div>
 
             <div id="risk-all-view" class="is-hidden">
@@ -1084,6 +1090,7 @@
         flex: 0 0 auto;
         white-space: nowrap;
         display: none;
+        cursor: pointer;
     }
 
     .risk-more.is-visible {
@@ -1444,6 +1451,32 @@
         cursor: pointer;
     }
 
+    .risk-hidden-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .risk-hidden-item {
+        width: 100%;
+        text-align: left;
+        border: 1px solid rgba(20,17,12,0.10);
+        border-radius: 10px;
+        padding: 8px 10px;
+        background: rgba(255,255,255,0.56);
+        color: var(--bt-ink-1);
+        font-size: 0.82rem;
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+    .risk-hidden-item:hover,
+    .risk-hidden-item:focus-visible {
+        border-color: rgba(201,146,26,0.42);
+        background: rgba(255,250,240,0.9);
+        outline: none;
+    }
+
     @@media (max-width: 560px) {
         .risk-modal {
             padding: 10px;
@@ -1788,6 +1821,8 @@
 
         const modal = document.getElementById('riskInfoModal');
         const singleView = document.getElementById('risk-single-view');
+        const hiddenView = document.getElementById('risk-hidden-view');
+        const hiddenList = document.getElementById('risk-hidden-list');
         const allView = document.getElementById('risk-all-view');
         const singleTitle = document.getElementById('risk-single-title');
         const singleShort = document.getElementById('risk-single-short');
@@ -1799,10 +1834,13 @@
         const contributionText = document.getElementById('risk-contribution-text');
         const singleReasonWrap = document.getElementById('risk-single-reason-wrap');
         const singleReason = document.getElementById('risk-single-reason');
+        const backHiddenButton = document.getElementById('risk-back-hidden');
         const showAllButton = document.getElementById('risk-show-all');
         const backButton = document.getElementById('risk-back-single');
 
-        if (!modal || !singleView || !allView) {
+        let hiddenRisksCache = [];
+
+        if (!modal || !singleView || !hiddenView || !hiddenList || !allView) {
             return;
         }
 
@@ -1827,15 +1865,50 @@
 
         function showSingleView() {
             singleView.classList.remove('is-hidden');
+            hiddenView.classList.add('is-hidden');
+            allView.classList.add('is-hidden');
+        }
+
+        function showHiddenView() {
+            singleView.classList.add('is-hidden');
+            hiddenView.classList.remove('is-hidden');
             allView.classList.add('is-hidden');
         }
 
         function showAllView() {
             singleView.classList.add('is-hidden');
+            hiddenView.classList.add('is-hidden');
             allView.classList.remove('is-hidden');
         }
 
-        function openRiskDetails(pill) {
+        function renderHiddenRisks(items) {
+            hiddenList.innerHTML = '';
+
+            if (!items.length) {
+                const empty = document.createElement('div');
+                empty.className = 'risk-single-why';
+                empty.textContent = 'No hidden risks for this token.';
+                hiddenList.appendChild(empty);
+                return;
+            }
+
+            for (const item of items) {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'risk-hidden-item';
+                button.setAttribute('data-risk-pill', 'true');
+                button.setAttribute('data-risk-code', item.code || '');
+                button.setAttribute('data-risk-title', item.title || 'Risk flag');
+                button.setAttribute('data-risk-points', `${item.points ?? 0}`);
+                button.setAttribute('data-total-score', `${item.totalScore ?? 0}`);
+                button.setAttribute('data-risk-severity', item.severity || 'low');
+                button.setAttribute('data-risk-reason', item.reason || '');
+                button.textContent = `${item.title || 'Risk flag'} (+${item.points ?? 0})`;
+                hiddenList.appendChild(button);
+            }
+        }
+
+        function openRiskDetails(pill, fromHiddenView = false) {
             const riskCode = pill.dataset.riskCode || '';
             const riskTitle = pill.dataset.riskTitle || pill.textContent?.trim() || 'Risk flag';
             const riskPoints = pill.dataset.riskPoints || '0';
@@ -1858,6 +1931,10 @@
                 singleSeverityBadge.textContent = riskSeverity;
                 singleSeverityBadge.classList.remove('low', 'medium', 'high');
                 singleSeverityBadge.classList.add(severityKey);
+            }
+
+            if (backHiddenButton) {
+                backHiddenButton.classList.toggle('is-hidden', !fromHiddenView || hiddenRisksCache.length === 0);
             }
 
             const pointsValue = Number.parseInt(riskPoints, 10) || 0;
@@ -1903,7 +1980,29 @@
         document.addEventListener('click', (event) => {
             const pill = event.target.closest('[data-risk-pill]');
             if (pill) {
-                openRiskDetails(pill);
+                const fromHiddenView = !!pill.closest('#risk-hidden-view');
+                openRiskDetails(pill, fromHiddenView);
+                return;
+            }
+
+            const moreChip = event.target.closest('[data-risk-more]');
+            if (moreChip) {
+                let parsed = [];
+                const raw = moreChip.dataset.hiddenRisks;
+
+                if (raw) {
+                    try {
+                        parsed = JSON.parse(raw);
+                    }
+                    catch {
+                        parsed = [];
+                    }
+                }
+
+                hiddenRisksCache = Array.isArray(parsed) ? parsed : [];
+                renderHiddenRisks(hiddenRisksCache);
+                showHiddenView();
+                openModal();
                 return;
             }
 
@@ -1915,6 +2014,10 @@
 
         showAllButton?.addEventListener('click', showAllView);
         backButton?.addEventListener('click', showSingleView);
+        backHiddenButton?.addEventListener('click', () => {
+            renderHiddenRisks(hiddenRisksCache);
+            showHiddenView();
+        });
 
         document.addEventListener('keydown', (event) => {
             if (event.key === 'Escape' && modal.classList.contains('is-open')) {

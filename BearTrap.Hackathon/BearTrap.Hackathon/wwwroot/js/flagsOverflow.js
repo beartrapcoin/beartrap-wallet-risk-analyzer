@@ -137,6 +137,17 @@ window.flagsOverflow = window.flagsOverflow || {
             .map((chip) => chip.dataset.flagLabel || chip.textContent?.trim() || '')
             .filter((label) => label.length > 0);
 
+        const hiddenRisks = flagChips
+            .slice(visibleCount)
+            .map((chip) => ({
+                code: chip.dataset.riskCode || '',
+                title: chip.dataset.riskTitle || chip.dataset.flagLabel || chip.textContent?.trim() || 'Risk flag',
+                points: Number.parseInt(chip.dataset.riskPoints || '0', 10) || 0,
+                totalScore: Number.parseInt(chip.dataset.totalScore || '0', 10) || 0,
+                severity: chip.dataset.riskSeverity || 'low',
+                reason: chip.dataset.riskReason || ''
+            }));
+
         const tooltip = hiddenLabels.length > 0
             ? `Ukryte ryzyka: ${hiddenLabels.join(', ')}`
             : `Ukryte ryzyka: ${hiddenCount}`;
@@ -146,6 +157,7 @@ window.flagsOverflow = window.flagsOverflow || {
         moreChip.setAttribute('aria-label', tooltip);
         moreChip.setAttribute('aria-hidden', 'false');
         moreChip.setAttribute('tabindex', '0');
+        moreChip.dataset.hiddenRisks = JSON.stringify(hiddenRisks);
         moreChip.style.display = 'inline-flex';
         moreChip.classList.add('is-visible');
         moreChip.classList.remove('is-hidden');
@@ -190,6 +202,7 @@ window.flagsOverflow = window.flagsOverflow || {
         moreChip.classList.add('is-hidden');
         moreChip.textContent = '';
         moreChip.title = '';
+        delete moreChip.dataset.hiddenRisks;
         moreChip.style.display = 'none';
         moreChip.setAttribute('aria-hidden', 'true');
         moreChip.setAttribute('tabindex', '-1');
