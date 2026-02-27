@@ -241,60 +241,29 @@
                             <div class="tcard-bottom" id="@GetFlagsContainerId(row.Token.Address)" data-flags-token-key="@NormalizeTokenKey(row.Token.Address)">
                                 @{
                                     var displayFlags = row.Report.DisplayFlags.ToList();
-                                    var visibleFlagsCount = GetVisibleFlagsCount(row.Token.Address, displayFlags.Count);
-                                    var hiddenFlags = displayFlags.Skip(visibleFlagsCount).ToList();
-                                    var hiddenFlagsCount = hiddenFlags.Count;
-                                    var isFlagsPopoverOpen = IsFlagsPopoverOpen(row.Token.Address);
-                                    var flagsPopoverContainerId = GetFlagsPopoverContainerId(row.Token.Address);
                                 }
-                                
-                                @if (displayFlags.Any())
-                                {
-                                    @foreach (var flag in displayFlags)
-                                    {
-                                        <span class="tchip tchip-flag flag-chip" title="@flag.Code: @flag.Label (+@flag.Points pts)">
-                                            @flag.Label
-                                        </span>
-                                    }
-                                    
-                                    @if (hiddenFlagsCount > 0)
-                                    {
-                                        <div class="flags-more-wrap" id="@flagsPopoverContainerId">
-                                            <button type="button"
-                                                    class="tchip tchip-more tchip-button more-chip"
-                                                    title="Show other risk flags"
-                                                    aria-expanded="@isFlagsPopoverOpen"
-                                                    aria-haspopup="true"
-                                                    @onclick="() => ToggleFlagsPopover(row.Token.Address)">
-                                                +@hiddenFlagsCount
-                                            </button>
 
-                                            @if (isFlagsPopoverOpen)
-                                            {
-                                                <div class="flags-popover" role="dialog" aria-label="Other risk flags" @onclick:stopPropagation="true">
-                                                    <div class="flags-popover-title">Other risk flags</div>
-                                                    <div class="flags-list">
-                                                        @foreach (var hiddenFlag in hiddenFlags)
-                                                        {
-                                                            <div class="flags-popover-item" title="@hiddenFlag.Code">
-                                                                <span class="flags-popover-label">@hiddenFlag.Label</span>
-                                                                @if (hiddenFlag.Points > 0)
-                                                                {
-                                                                    <span class="flags-popover-points">+@hiddenFlag.Points</span>
-                                                                }
-                                                            </div>
-                                                        }
-                                                    </div>
-                                                    <button type="button" class="flags-popover-close" @onclick="CloseFlagsPopover">Close</button>
-                                                </div>
-                                            }
-                                        </div>
-                                    }
-                                }
-                                else
-                                {
-                                    <span class="tchip tchip-clean">✓ Clean</span>
-                                }
+                                <div class="risk-row">
+                                    <div class="risk-pills" data-risk-container="true">
+                                        @foreach (var flag in displayFlags)
+                                        {
+                                            <span class="tchip tchip-flag flag-chip" data-risk-pill="true" data-flag-label="@flag.Label" title="@flag.Code: @flag.Label (+@flag.Points pts)">
+                                                @flag.Label
+                                            </span>
+                                        }
+
+                                        @if (!displayFlags.Any())
+                                        {
+                                            <span class="tchip tchip-clean">✓ Clean</span>
+                                        }
+                                    </div>
+
+                                    <span class="tchip tchip-more more-chip risk-more is-hidden"
+                                          data-risk-more="true"
+                                          title=""
+                                          aria-hidden="true"
+                                          tabindex="-1"></span>
+                                </div>
                             </div>
 
                             <div class="tcard-progress-section">
@@ -988,20 +957,57 @@
        BOTTOM STRIP (Creator + Flags)
        ======================================== */
     .tcard-bottom {
-        display: flex;
-        align-items: center;
-        gap: 5px;
-        flex-wrap: nowrap;
-        overflow-x: hidden;
-        overflow-y: visible;
+        display: block;
+        min-width: 0;
         padding-top: 8px;
         border-top: 1px solid rgba(20,17,12,0.08);
+    }
+
+    .risk-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: nowrap;
+        min-width: 0;
+    }
+
+    .risk-pills {
+        display: flex;
+        gap: 8px;
+        flex-wrap: nowrap;
+        overflow: hidden;
+        align-items: center;
+        min-width: 0;
+        flex: 1 1 auto;
+    }
+
+    [data-risk-container] {
+        display: flex;
+        gap: 8px;
+        flex-wrap: nowrap;
+        overflow: hidden;
+        align-items: center;
+        min-width: 0;
+    }
+
+    .risk-more {
+        flex: 0 0 auto;
+        white-space: nowrap;
+        display: none;
+    }
+
+    .risk-more.is-visible {
+        display: inline-flex;
     }
 
     .flag-chip,
     .flags-more-wrap,
     .more-chip {
         flex: 0 0 auto;
+    }
+
+    .is-hidden {
+        display: none !important;
     }
     
     .tchip {
@@ -1417,53 +1423,6 @@
 </style>
 
 <script>
-    window.flagsPopover = window.flagsPopover || {
-        dotNetRef: null,
-        activeContainerId: null,
-        outsideHandler: null,
-        escapeHandler: null,
-
-        register(dotNetRef, containerId) {
-            this.unregister();
-            this.dotNetRef = dotNetRef;
-            this.activeContainerId = containerId;
-
-            this.outsideHandler = (event) => {
-                const container = document.getElementById(this.activeContainerId);
-                if (!container) {
-                    this.dotNetRef?.invokeMethodAsync('CloseFlagsPopoverFromJs');
-                    return;
-                }
-
-                if (!container.contains(event.target)) {
-                    this.dotNetRef?.invokeMethodAsync('CloseFlagsPopoverFromJs');
-                }
-            };
-
-            this.escapeHandler = (event) => {
-                if (event.key === 'Escape') {
-                    this.dotNetRef?.invokeMethodAsync('CloseFlagsPopoverFromJs');
-                }
-            };
-
-            document.addEventListener('mousedown', this.outsideHandler, true);
-            document.addEventListener('keydown', this.escapeHandler, true);
-        },
-
-        unregister() {
-            if (this.outsideHandler) {
-                document.removeEventListener('mousedown', this.outsideHandler, true);
-            }
-            if (this.escapeHandler) {
-                document.removeEventListener('keydown', this.escapeHandler, true);
-            }
-
-            this.outsideHandler = null;
-            this.escapeHandler = null;
-            this.activeContainerId = null;
-        }
-    };
-
     window.copyToClipboard = function(text) {
         // Copy to clipboard
         if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -1546,10 +1505,6 @@
 @code {
     private bool _loading = true;
     private List<(LatestToken Token, RiskReport Report)> _results = new();
-    private string? _openFlagsTokenAddress;
-    private string? _registeredFlagsPopoverContainerId;
-    private DotNetObjectReference<Home>? _dotNetRef;
-    private readonly Dictionary<string, int> _visibleFlagsByToken = new(StringComparer.OrdinalIgnoreCase);
     private bool _flagsOverflowRegistered;
     
     // Search state
@@ -1587,132 +1542,6 @@
             .ToArray();
 
         return $"flags-{new string(safeChars)}";
-    }
-
-    private int GetVisibleFlagsCount(string tokenAddress, int totalFlags)
-    {
-        var tokenKey = NormalizeTokenKey(tokenAddress);
-
-        if (!_visibleFlagsByToken.TryGetValue(tokenKey, out var visibleCount))
-        {
-            return totalFlags;
-        }
-
-        return Math.Clamp(visibleCount, 0, totalFlags);
-    }
-
-    private static string GetFlagsPopoverContainerId(string tokenAddress)
-    {
-        var safeChars = tokenAddress
-            .Select(ch => char.IsLetterOrDigit(ch) ? ch : '-')
-            .ToArray();
-
-        return $"flags-more-{new string(safeChars)}";
-    }
-
-    private bool IsFlagsPopoverOpen(string tokenAddress)
-        => string.Equals(_openFlagsTokenAddress, tokenAddress, StringComparison.OrdinalIgnoreCase);
-
-    private void ToggleFlagsPopover(string tokenAddress)
-    {
-        if (IsFlagsPopoverOpen(tokenAddress))
-        {
-            _openFlagsTokenAddress = null;
-            return;
-        }
-
-        _openFlagsTokenAddress = tokenAddress;
-    }
-
-    private void CloseFlagsPopover()
-    {
-        _openFlagsTokenAddress = null;
-    }
-
-    [JSInvokable]
-    public void CloseFlagsPopoverFromJs()
-    {
-        if (_openFlagsTokenAddress is null)
-        {
-            return;
-        }
-
-        _openFlagsTokenAddress = null;
-        InvokeAsync(StateHasChanged);
-    }
-
-    [JSInvokable]
-    private Task UpdateFlagsOverflowBatch(List<FlagsOverflowState>? states)
-    {
-        states ??= new List<FlagsOverflowState>();
-
-        var changed = false;
-        var keysInView = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var state in states)
-        {
-            if (state is null || string.IsNullOrWhiteSpace(state.TokenKey))
-            {
-                continue;
-            }
-
-            var tokenKey = NormalizeTokenKey(state.TokenKey);
-            var visibleCount = Math.Max(0, state.VisibleCount);
-
-            keysInView.Add(tokenKey);
-
-            if (!_visibleFlagsByToken.TryGetValue(tokenKey, out var current) || current != visibleCount)
-            {
-                _visibleFlagsByToken[tokenKey] = visibleCount;
-                changed = true;
-            }
-        }
-
-        var removedKeys = _visibleFlagsByToken.Keys
-            .Where(key => !keysInView.Contains(key))
-            .ToList();
-
-        foreach (var removedKey in removedKeys)
-        {
-            _visibleFlagsByToken.Remove(removedKey);
-            changed = true;
-        }
-
-        if (!string.IsNullOrWhiteSpace(_openFlagsTokenAddress))
-        {
-            var openTokenKey = NormalizeTokenKey(_openFlagsTokenAddress);
-            var openTokenTotalFlags = 0;
-
-            foreach (var result in _results)
-            {
-                if (!string.Equals(NormalizeTokenKey(result.Token.Address), openTokenKey, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                openTokenTotalFlags = result.Report.DisplayFlags.Count();
-                break;
-            }
-
-            if (openTokenTotalFlags > 0 && _visibleFlagsByToken.TryGetValue(openTokenKey, out var openVisibleCount) && openVisibleCount >= openTokenTotalFlags)
-            {
-                _openFlagsTokenAddress = null;
-                changed = true;
-            }
-        }
-
-        if (!changed)
-        {
-            return Task.CompletedTask;
-        }
-
-        return InvokeAsync(StateHasChanged);
-    }
-
-    private sealed class FlagsOverflowState
-    {
-        public string TokenKey { get; set; } = string.Empty;
-        public int VisibleCount { get; set; }
     }
     
     protected override async Task OnInitializedAsync()
@@ -1785,6 +1614,7 @@
         {
             _loading = false;
             await InvokeAsync(StateHasChanged);
+            await TryRecalculateRiskFlagsAsync();
         }
     }
 
@@ -1809,6 +1639,7 @@
         {
             _loadingMore = false;
             await InvokeAsync(StateHasChanged);
+            await TryRecalculateRiskFlagsAsync();
         }
     }
 
@@ -1842,8 +1673,6 @@
         else
         {
             _results = analyzedRows;
-            _visibleFlagsByToken.Clear();
-            _openFlagsTokenAddress = null;
         }
 
         _activeQuery = normalizedQuery;
@@ -1896,39 +1725,27 @@
     {
         if (firstRender)
         {
-            _dotNetRef = DotNetObjectReference.Create(this);
             await LoadFirstPageAsync();
-        }
-
-        if (_dotNetRef is null)
-        {
-            return;
         }
 
         if (!_flagsOverflowRegistered)
         {
-            await JSRuntime.InvokeVoidAsync("flagsOverflow.register", _dotNetRef);
+            await JSRuntime.InvokeVoidAsync("flagsOverflow.register");
             _flagsOverflowRegistered = true;
         }
 
-        await JSRuntime.InvokeVoidAsync("flagsOverflow.recalculateAll");
+        await TryRecalculateRiskFlagsAsync();
+    }
 
-        if (string.IsNullOrWhiteSpace(_openFlagsTokenAddress))
+    private async Task TryRecalculateRiskFlagsAsync()
+    {
+        try
         {
-            if (_registeredFlagsPopoverContainerId is not null)
-            {
-                await JSRuntime.InvokeVoidAsync("flagsPopover.unregister");
-                _registeredFlagsPopoverContainerId = null;
-            }
-
-            return;
+            await JSRuntime.InvokeVoidAsync("recalculateAllRiskFlags");
         }
-
-        var containerId = GetFlagsPopoverContainerId(_openFlagsTokenAddress);
-        if (!string.Equals(_registeredFlagsPopoverContainerId, containerId, StringComparison.Ordinal))
+        catch (Exception ex)
         {
-            await JSRuntime.InvokeVoidAsync("flagsPopover.register", _dotNetRef, containerId);
-            _registeredFlagsPopoverContainerId = containerId;
+            Console.Error.WriteLine($"[flagsOverflow] JS interop error: {ex}");
         }
     }
 
@@ -1940,13 +1757,10 @@
         try
         {
             await JSRuntime.InvokeVoidAsync("flagsOverflow.dispose");
-            await JSRuntime.InvokeVoidAsync("flagsPopover.unregister");
         }
         catch
         {
         }
-
-        _dotNetRef?.Dispose();
     }
 
 }
