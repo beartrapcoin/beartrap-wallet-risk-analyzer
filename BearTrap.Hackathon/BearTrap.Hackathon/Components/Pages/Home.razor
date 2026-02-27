@@ -257,6 +257,7 @@
                                                   data-risk-code="@flag.Code"
                                                   data-risk-title="@flag.Label"
                                                   data-risk-points="@flag.Points"
+                                                  data-total-score="@row.Report.Score"
                                                   data-risk-severity="@flag.Severity"
                                                   data-risk-reason="@reason"
                                                   data-flag-label="@flag.Label"
@@ -334,6 +335,13 @@
                 <p id="risk-single-short" class="risk-single-short"></p>
                 <p id="risk-single-why" class="risk-single-why"></p>
                 <div id="risk-single-impact" class="risk-single-impact"></div>
+                <div id="risk-contribution-wrap" class="risk-contribution-wrap is-hidden">
+                    <div class="risk-contribution-label">Contribution to total score</div>
+                    <div class="risk-contribution-bar">
+                        <div id="risk-contribution-fill" class="risk-contribution-fill"></div>
+                    </div>
+                    <div id="risk-contribution-text" class="risk-contribution-text"></div>
+                </div>
                 <div id="risk-single-reason-wrap" class="risk-single-reason-wrap">
                     <strong>Detected reason:</strong>
                     <span id="risk-single-reason"></span>
@@ -1355,6 +1363,52 @@
         color: var(--bt-ink-2);
     }
 
+    .risk-contribution-wrap {
+        margin: 0 0 8px 0;
+    }
+
+    .risk-contribution-label {
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: var(--bt-ink-2);
+        margin-bottom: 4px;
+    }
+
+    .risk-contribution-bar {
+        width: 100%;
+        height: 7px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(20,17,12,0.12);
+        border: 1px solid rgba(20,17,12,0.10);
+        margin-bottom: 4px;
+    }
+
+    .risk-contribution-fill {
+        height: 100%;
+        width: 0;
+        border-radius: 999px;
+        transition: width 200ms ease;
+    }
+
+    .risk-contribution-fill.low {
+        background: linear-gradient(90deg, rgba(46,125,87,0.85), rgba(46,125,87,0.65));
+    }
+
+    .risk-contribution-fill.medium {
+        background: linear-gradient(90deg, rgba(214,160,42,0.9), rgba(214,160,42,0.7));
+    }
+
+    .risk-contribution-fill.high {
+        background: linear-gradient(90deg, rgba(198,83,61,0.9), rgba(198,83,61,0.72));
+    }
+
+    .risk-contribution-text {
+        font-size: 0.76rem;
+        font-weight: 600;
+        color: var(--bt-ink-2);
+    }
+
     .risk-category {
         margin-bottom: 10px;
     }
@@ -1740,6 +1794,9 @@
         const singleWhy = document.getElementById('risk-single-why');
         const singleImpact = document.getElementById('risk-single-impact');
         const singleSeverityBadge = document.getElementById('risk-single-severity-badge');
+        const contributionWrap = document.getElementById('risk-contribution-wrap');
+        const contributionFill = document.getElementById('risk-contribution-fill');
+        const contributionText = document.getElementById('risk-contribution-text');
         const singleReasonWrap = document.getElementById('risk-single-reason-wrap');
         const singleReason = document.getElementById('risk-single-reason');
         const showAllButton = document.getElementById('risk-show-all');
@@ -1782,7 +1839,9 @@
             const riskCode = pill.dataset.riskCode || '';
             const riskTitle = pill.dataset.riskTitle || pill.textContent?.trim() || 'Risk flag';
             const riskPoints = pill.dataset.riskPoints || '0';
+            const totalScore = pill.dataset.totalScore || '0';
             const riskSeverity = normalizeSeverity(pill.dataset.riskSeverity);
+            const severityKey = (pill.dataset.riskSeverity || 'low').toLowerCase();
             const riskReason = (pill.dataset.riskReason || '').trim();
 
             const mapping = riskDescriptions[riskCode] || {
@@ -1798,7 +1857,29 @@
             if (singleSeverityBadge) {
                 singleSeverityBadge.textContent = riskSeverity;
                 singleSeverityBadge.classList.remove('low', 'medium', 'high');
-                singleSeverityBadge.classList.add((pill.dataset.riskSeverity || 'low').toLowerCase());
+                singleSeverityBadge.classList.add(severityKey);
+            }
+
+            const pointsValue = Number.parseInt(riskPoints, 10) || 0;
+            const totalScoreValue = Number.parseInt(totalScore, 10) || 0;
+
+            if (contributionWrap && contributionFill && contributionText) {
+                if (totalScoreValue <= 0) {
+                    contributionWrap.classList.add('is-hidden');
+                    contributionFill.style.width = '0%';
+                    contributionFill.classList.remove('low', 'medium', 'high');
+                    contributionText.textContent = '';
+                }
+                else {
+                    const rawPercent = Math.round((pointsValue / totalScoreValue) * 100);
+                    const percent = Math.max(0, Math.min(100, rawPercent));
+
+                    contributionWrap.classList.remove('is-hidden');
+                    contributionFill.classList.remove('low', 'medium', 'high');
+                    contributionFill.classList.add(severityKey);
+                    contributionFill.style.width = `${percent}%`;
+                    contributionText.textContent = `${pointsValue} / ${totalScoreValue} (${percent}%)`;
+                }
             }
 
             const reasonNormalized = riskReason.toLowerCase();
