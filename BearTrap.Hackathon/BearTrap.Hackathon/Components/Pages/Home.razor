@@ -241,13 +241,26 @@
                             <div class="tcard-bottom" id="@GetFlagsContainerId(row.Token.Address)" data-flags-token-key="@NormalizeTokenKey(row.Token.Address)">
                                 @{
                                     var displayFlags = row.Report.DisplayFlags.ToList();
+                                    var riskReasonByCode = row.Report.Flags
+                                        .GroupBy(f => f.Code, StringComparer.OrdinalIgnoreCase)
+                                        .ToDictionary(g => g.Key, g => g.First().Detail, StringComparer.OrdinalIgnoreCase);
                                 }
 
                                 <div class="risk-row">
                                     <div class="risk-pills" data-risk-container="true">
                                         @foreach (var flag in displayFlags)
                                         {
-                                            <span class="tchip tchip-flag flag-chip" data-risk-pill="true" data-flag-label="@flag.Label" title="@flag.Code: @flag.Label (+@flag.Points pts)">
+                                            var reason = riskReasonByCode.TryGetValue(flag.Code, out var detail) ? detail : string.Empty;
+
+                                            <span class="tchip tchip-flag flag-chip"
+                                                  data-risk-pill="true"
+                                                  data-risk-code="@flag.Code"
+                                                  data-risk-title="@flag.Label"
+                                                  data-risk-points="@flag.Points"
+                                                  data-risk-severity="@flag.Severity"
+                                                  data-risk-reason="@reason"
+                                                  data-flag-label="@flag.Label"
+                                                  title="@flag.Code: @flag.Label (+@flag.Points pts)">
                                                 @flag.Label
                                             </span>
                                         }
@@ -300,6 +313,75 @@
                     </div>
                 }
             }
+        </div>
+    </div>
+</div>
+
+<div id="riskInfoModal" class="risk-modal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="riskModalTitle">
+    <div class="risk-modal-backdrop" data-risk-modal-close="true"></div>
+    <div class="risk-modal-dialog" role="document">
+        <div class="risk-modal-header">
+            <h3 id="riskModalTitle" class="risk-modal-title">Risk details</h3>
+            <button type="button" class="risk-modal-close" aria-label="Close" data-risk-modal-close="true">×</button>
+        </div>
+
+        <div class="risk-modal-body">
+            <div id="risk-single-view">
+                <div class="risk-single-heading">
+                    <h4 id="risk-single-title" class="risk-single-title"></h4>
+                    <span id="risk-single-severity-badge" class="risk-severity-badge"></span>
+                </div>
+                <p id="risk-single-short" class="risk-single-short"></p>
+                <p id="risk-single-why" class="risk-single-why"></p>
+                <div id="risk-single-impact" class="risk-single-impact"></div>
+                <div id="risk-single-reason-wrap" class="risk-single-reason-wrap">
+                    <strong>Detected reason:</strong>
+                    <span id="risk-single-reason"></span>
+                </div>
+                <button type="button" id="risk-show-all" class="risk-modal-btn">Show all risk categories</button>
+            </div>
+
+            <div id="risk-all-view" class="is-hidden">
+                <h4 class="risk-single-title">All risk flags explained</h4>
+
+                <div class="risk-category">
+                    <h5><span aria-hidden="true">🧑‍💻</span> Creator Behavior</h5>
+                    <ul>
+                        <li>Creator spam (+35)</li>
+                        <li>Creator burst deploys (+30)</li>
+                        <li>Name reused by creator (+15)</li>
+                    </ul>
+                </div>
+
+                <div class="risk-category">
+                    <h5><span aria-hidden="true">🏷</span> Identity & Branding Patterns</h5>
+                    <ul>
+                        <li>Duplicate name in batch (+20)</li>
+                        <li>Generic hype name (+15)</li>
+                        <li>Suspicious name (+10)</li>
+                        <li>Very short symbol (+10)</li>
+                    </ul>
+                </div>
+
+                <div class="risk-category">
+                    <h5><span aria-hidden="true">🖼</span> Visual & Content Quality</h5>
+                    <ul>
+                        <li>Image reused (+10)</li>
+                        <li>Empty description (+5)</li>
+                        <li>External link in description (+10)</li>
+                    </ul>
+                </div>
+
+                <div class="risk-category">
+                    <h5><span aria-hidden="true">🌐</span> Transparency & Communication</h5>
+                    <ul>
+                        <li>No socials (+5)</li>
+                        <li>Metadata changed (+5)</li>
+                    </ul>
+                </div>
+
+                <button type="button" id="risk-back-single" class="risk-modal-btn">Back to selected risk</button>
+            </div>
         </div>
     </div>
 </div>
@@ -1021,6 +1103,10 @@
         align-items: center;
         gap: 4px;
     }
+
+    [data-risk-pill] {
+        cursor: pointer;
+    }
     
     .tchip-flag {
         background: rgba(255,250,240,0.55);
@@ -1162,6 +1248,162 @@
         white-space: nowrap;
         box-shadow: 0 10px 26px rgba(201,146,26,0.28);
         animation: fadeInOut 800ms ease-in-out;
+    }
+
+    .risk-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 1200;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+    }
+
+    .risk-modal.is-open {
+        display: flex;
+    }
+
+    .risk-modal-backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(20,17,12,0.48);
+    }
+
+    .risk-modal-dialog {
+        position: relative;
+        width: min(640px, 100%);
+        max-height: 85vh;
+        overflow: auto;
+        border-radius: 14px;
+        border: 1px solid rgba(20,17,12,0.14);
+        background: linear-gradient(145deg, rgba(255,250,240,0.98), rgba(244,229,199,0.95));
+        box-shadow: 0 20px 40px rgba(20,17,12,0.28);
+        padding: 14px;
+    }
+
+    .risk-modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 8px;
+    }
+
+    .risk-modal-title,
+    .risk-single-title {
+        margin: 0;
+        color: var(--bt-ink-1);
+        font-size: 1rem;
+        font-weight: 700;
+    }
+
+    .risk-single-heading {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 4px;
+        flex-wrap: wrap;
+    }
+
+    .risk-severity-badge {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 2px 8px;
+        font-size: 0.7rem;
+        font-weight: 700;
+        border: 1px solid transparent;
+    }
+
+    .risk-severity-badge.low {
+        color: #1f6b4b;
+        background: rgba(46,125,87,0.14);
+        border-color: rgba(46,125,87,0.24);
+    }
+
+    .risk-severity-badge.medium {
+        color: #915f0a;
+        background: rgba(214,160,42,0.17);
+        border-color: rgba(214,160,42,0.28);
+    }
+
+    .risk-severity-badge.high {
+        color: #9f342a;
+        background: rgba(198,83,61,0.16);
+        border-color: rgba(198,83,61,0.30);
+    }
+
+    .risk-modal-close {
+        border: 1px solid rgba(20,17,12,0.14);
+        background: rgba(255,250,240,0.82);
+        border-radius: 8px;
+        width: 30px;
+        height: 30px;
+        line-height: 1;
+        font-size: 1.2rem;
+        cursor: pointer;
+        color: var(--bt-ink-1);
+    }
+
+    .risk-single-short,
+    .risk-single-why,
+    .risk-single-impact,
+    .risk-single-reason-wrap {
+        margin: 0 0 8px 0;
+        font-size: 0.86rem;
+        color: var(--bt-ink-2);
+    }
+
+    .risk-category {
+        margin-bottom: 10px;
+    }
+
+    .risk-category + .risk-category {
+        margin-top: 12px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(20,17,12,0.10);
+    }
+
+    .risk-category h5 {
+        margin: 0 0 4px 0;
+        font-size: 0.86rem;
+        color: var(--bt-ink-1);
+        font-weight: 700;
+    }
+
+    .risk-category ul {
+        margin: 0;
+        padding-left: 18px;
+        color: var(--bt-ink-2);
+        font-size: 0.83rem;
+    }
+
+    .risk-modal-btn {
+        border: 1px solid rgba(201,146,26,0.36);
+        background: rgba(255,250,240,0.9);
+        border-radius: 8px;
+        padding: 6px 10px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--bt-ink-1);
+        cursor: pointer;
+    }
+
+    @@media (max-width: 560px) {
+        .risk-modal {
+            padding: 10px;
+        }
+
+        .risk-modal-dialog {
+            width: 100%;
+            max-height: 88vh;
+            padding: 12px;
+        }
+
+        .risk-modal-btn {
+            width: 100%;
+        }
     }
     
     @@keyframes fadeInOut {
@@ -1472,6 +1714,133 @@
             }
         }, 800);
     }
+
+    (function () {
+        const riskDescriptions = {
+            EMPTY_DESCRIPTION: { short: "Token description is empty or extremely short.", why: "Legitimate projects usually provide at least minimal context." },
+            CREATOR_SPAM: { short: "Creator deployed 3+ tokens in the last 24 hours.", why: "High-frequency launches are common in spam factories." },
+            CREATOR_BURST: { short: "Creator deployed many tokens in the current batch.", why: "Burst launches can indicate factory-like behavior." },
+            NAME_REUSED: { short: "The same creator reused token name or symbol.", why: "Name/symbol recycling can indicate low-effort repeated launches." },
+            DUPLICATE_NAME_IN_BATCH: { short: "Name appears multiple times in one batch.", why: "Repeated naming in short time can indicate copycat/spam patterns." },
+            NAME_TOO_GENERIC: { short: "Name contains multiple generic hype keywords.", why: "Overly generic branding is common in low-quality launches." },
+            NAME_SUS: { short: "Name/symbol matched suspicious pattern.", why: "Contains scam-like terms, URL fragments, or suspicious symbols." },
+            SYMBOL_TOO_SHORT: { short: "Token symbol is very short.", why: "Extremely short symbols are often used by low-effort spam tokens." },
+            SYMBOL_RANDOMIZED: { short: "Symbol appears randomized/spam-like.", why: "Pattern may look auto-generated rather than branded." },
+            IMAGE_REUSED: { short: "Image URL is reused by multiple tokens.", why: "Visual reuse may suggest cloned projects." },
+            LINK_IN_DESCRIPTION: { short: "Description contains external link.", why: "External links in token description can be used for phishing." },
+            NO_SOCIALS: { short: "No website, Telegram, or Twitter found.", why: "Lack of communication channels reduces transparency." },
+            METADATA_CHANGED: { short: "Token metadata changed after creation.", why: "Late metadata edits can be benign or suspicious depending on context." }
+        };
+
+        const modal = document.getElementById('riskInfoModal');
+        const singleView = document.getElementById('risk-single-view');
+        const allView = document.getElementById('risk-all-view');
+        const singleTitle = document.getElementById('risk-single-title');
+        const singleShort = document.getElementById('risk-single-short');
+        const singleWhy = document.getElementById('risk-single-why');
+        const singleImpact = document.getElementById('risk-single-impact');
+        const singleSeverityBadge = document.getElementById('risk-single-severity-badge');
+        const singleReasonWrap = document.getElementById('risk-single-reason-wrap');
+        const singleReason = document.getElementById('risk-single-reason');
+        const showAllButton = document.getElementById('risk-show-all');
+        const backButton = document.getElementById('risk-back-single');
+
+        if (!modal || !singleView || !allView) {
+            return;
+        }
+
+        function normalizeSeverity(rawSeverity) {
+            const value = (rawSeverity || '').toLowerCase();
+            if (value === 'high') return 'High';
+            if (value === 'medium') return 'Medium';
+            return 'Low';
+        }
+
+        function openModal() {
+            modal.classList.add('is-open');
+            modal.setAttribute('aria-hidden', 'false');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeModal() {
+            modal.classList.remove('is-open');
+            modal.setAttribute('aria-hidden', 'true');
+            document.body.style.overflow = '';
+        }
+
+        function showSingleView() {
+            singleView.classList.remove('is-hidden');
+            allView.classList.add('is-hidden');
+        }
+
+        function showAllView() {
+            singleView.classList.add('is-hidden');
+            allView.classList.remove('is-hidden');
+        }
+
+        function openRiskDetails(pill) {
+            const riskCode = pill.dataset.riskCode || '';
+            const riskTitle = pill.dataset.riskTitle || pill.textContent?.trim() || 'Risk flag';
+            const riskPoints = pill.dataset.riskPoints || '0';
+            const riskSeverity = normalizeSeverity(pill.dataset.riskSeverity);
+            const riskReason = (pill.dataset.riskReason || '').trim();
+
+            const mapping = riskDescriptions[riskCode] || {
+                short: `${riskTitle}.`,
+                why: 'This flag indicates a potential risk pattern detected in token metadata or behavior.'
+            };
+
+            singleTitle.textContent = riskTitle;
+            singleShort.textContent = mapping.short;
+            singleWhy.textContent = mapping.why;
+            singleImpact.textContent = `Risk impact: +${riskPoints} points · Severity: ${riskSeverity}`;
+
+            if (singleSeverityBadge) {
+                singleSeverityBadge.textContent = riskSeverity;
+                singleSeverityBadge.classList.remove('low', 'medium', 'high');
+                singleSeverityBadge.classList.add((pill.dataset.riskSeverity || 'low').toLowerCase());
+            }
+
+            const reasonNormalized = riskReason.toLowerCase();
+            const shortNormalized = (mapping.short || '').trim().toLowerCase();
+            const whyNormalized = (mapping.why || '').trim().toLowerCase();
+            const shouldShowReason = reasonNormalized.length > 0 && reasonNormalized !== shortNormalized && reasonNormalized !== whyNormalized;
+
+            if (shouldShowReason) {
+                singleReason.textContent = riskReason;
+                singleReasonWrap.classList.remove('is-hidden');
+            }
+            else {
+                singleReason.textContent = '';
+                singleReasonWrap.classList.add('is-hidden');
+            }
+
+            showSingleView();
+            openModal();
+        }
+
+        document.addEventListener('click', (event) => {
+            const pill = event.target.closest('[data-risk-pill]');
+            if (pill) {
+                openRiskDetails(pill);
+                return;
+            }
+
+            if (event.target.closest('[data-risk-modal-close]')) {
+                closeModal();
+                return;
+            }
+        });
+
+        showAllButton?.addEventListener('click', showAllView);
+        backButton?.addEventListener('click', showSingleView);
+
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && modal.classList.contains('is-open')) {
+                closeModal();
+            }
+        });
+    })();
 </script>
 
 @code {
