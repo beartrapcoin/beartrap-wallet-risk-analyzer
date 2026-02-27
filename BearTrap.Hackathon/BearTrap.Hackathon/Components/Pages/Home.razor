@@ -237,25 +237,6 @@
                                 </div>
                             </div>
                             
-                            <div class="tcard-progress-section">
-                                @if (row.Token.ProgressPercent.HasValue)
-                                {
-                                    var progressPercent = row.Token.ProgressPercent.Value;
-
-                                    <div class="tcard-progress-header">
-                                        <span class="tcard-progress-label">Bonding Curve</span>
-                                        <span class="tcard-progress-value">@progressPercent.ToString("0")%</span>
-                                    </div>
-                                    <div class="bt-progress" role="progressbar" aria-label="Bonding Curve" aria-valuenow="@progressPercent" aria-valuemin="0" aria-valuemax="100">
-                                        <div class="bt-progress__bar" style="width: @ToCssPercent(progressPercent);"></div>
-                                    </div>
-                                }
-                                else
-                                {
-                                    <div class="tcard-progress-na">Bonding Curve: n/a</div>
-                                }
-                            </div>
-
                             <!-- Bottom Strip: Flags -->
                             <div class="tcard-bottom" id="@GetFlagsContainerId(row.Token.Address)" data-flags-token-key="@NormalizeTokenKey(row.Token.Address)">
                                 @{
@@ -313,6 +294,25 @@
                                 else
                                 {
                                     <span class="tchip tchip-clean">✓ Clean</span>
+                                }
+                            </div>
+
+                            <div class="tcard-progress-section">
+                                @if (row.Token.ProgressPercent.HasValue)
+                                {
+                                    var progressPercent = row.Token.ProgressPercent.Value;
+
+                                    <div class="tcard-progress-header">
+                                        <span class="tcard-progress-label">Bonding Curve</span>
+                                        <span class="tcard-progress-value">@progressPercent.ToString("0")%</span>
+                                    </div>
+                                    <div class="bt-progress" role="progressbar" aria-label="Bonding Curve" aria-valuenow="@progressPercent" aria-valuemin="0" aria-valuemax="100">
+                                        <div class="bt-progress__bar" style="width: @ToCssPercent(progressPercent);"></div>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="tcard-progress-na">Bonding Curve: n/a</div>
                                 }
                             </div>
                         </div>
@@ -403,8 +403,8 @@
     }
     
     .tcard-progress-section {
-        margin-top: 10px;
-        padding: 10px 0 0;
+        margin-top: 4px;
+        padding: 6px 0 0;
         border-top: 1px solid rgba(20,17,12,0.08);
     }
 
