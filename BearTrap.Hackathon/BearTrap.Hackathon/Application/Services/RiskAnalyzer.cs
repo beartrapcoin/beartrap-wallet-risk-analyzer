@@ -34,6 +34,8 @@ public sealed class RiskAnalyzer
 
     private const string NoSocialsFlagCode = "NO_SOCIALS";
     private const string MetadataChangedFlagCode = "METADATA_CHANGED";
+    private const string EmptyDescriptionFlagCode = "EMPTY_DESCRIPTION";
+    private const string LinkInDescriptionFlagCode = "LINK_IN_DESCRIPTION";
 
     private static bool _heuristicExamplesLogged;
 
@@ -273,6 +275,22 @@ public sealed class RiskAnalyzer
     {
         var name = token.Name?.Trim() ?? string.Empty;
         var symbol = token.Symbol?.Trim() ?? string.Empty;
+        var description = token.Description?.Trim() ?? string.Empty;
+
+        // EMPTY_DESCRIPTION (+5): missing or very short token description
+        if ((string.IsNullOrWhiteSpace(token.Description) || description.Length < 12) &&
+            !flags.Any(flag => flag.Code == EmptyDescriptionFlagCode))
+        {
+            flags.Add(CreateFlag(EmptyDescriptionFlagCode, "Token description is empty or extremely short."));
+        }
+
+        // LINK_IN_DESCRIPTION (+10): description contains external links/domains
+        if (!string.IsNullOrWhiteSpace(description) &&
+            ContainsDescriptionExternalLink(description) &&
+            !flags.Any(flag => flag.Code == LinkInDescriptionFlagCode))
+        {
+            flags.Add(CreateFlag(LinkInDescriptionFlagCode, "Token description contains an external link (possible phishing)."));
+        }
 
         // SYMBOL_TOO_SHORT (+10): Symbol length <= 2
         if (symbol.Length > 0 && symbol.Length <= 2)
@@ -391,6 +409,9 @@ public sealed class RiskAnalyzer
     private static bool ContainsUrl(string text)
         => Regex.IsMatch(text, @"(https?://|www\.|\.com\b|\.io\b|\.net\b)", SuspiciousRegexOptions);
 
+    private static bool ContainsDescriptionExternalLink(string text)
+        => Regex.IsMatch(text, @"(https?://|www\.|\.com\b|\.io\b|\.net\b|t\.me/|x\.com/)", SuspiciousRegexOptions);
+
     private static int CountSuspiciousSpecialChars(string text)
         => text.Count(ch => SuspiciousSpecialChars.Contains(ch));
 
@@ -400,6 +421,8 @@ public sealed class RiskAnalyzer
             "NAME_SUS" => new RiskFlag("NAME_SUS", "Suspicious name", reason, 10),
             NoSocialsFlagCode => new RiskFlag(NoSocialsFlagCode, "No socials", reason, 5),
             MetadataChangedFlagCode => new RiskFlag(MetadataChangedFlagCode, "Metadata changed", reason, 5),
+            EmptyDescriptionFlagCode => new RiskFlag(EmptyDescriptionFlagCode, "Empty description", reason, 5),
+            LinkInDescriptionFlagCode => new RiskFlag(LinkInDescriptionFlagCode, "External link in description", reason, 10),
             _ => new RiskFlag(code, code, reason, 0)
         };
 

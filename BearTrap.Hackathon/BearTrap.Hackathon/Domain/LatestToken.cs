@@ -12,5 +12,6 @@ public sealed record LatestToken(
     string? WebUrl = null,
     string? TelegramUrl = null,
     string? TwitterUrl = null,
-    DateTimeOffset? ModifiedAt = null
+    DateTimeOffset? ModifiedAt = null,
+    string? Description = null
 );

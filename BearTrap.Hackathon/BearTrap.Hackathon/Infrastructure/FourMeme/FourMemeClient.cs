@@ -112,7 +112,8 @@ public sealed class FourMemeClient : IFourMemeClient
                     WebUrl: x.WebUrl?.Trim(),
                     TelegramUrl: x.TelegramUrl?.Trim(),
                     TwitterUrl: x.TwitterUrl?.Trim(),
-                    ModifiedAt: modifiedAt);
+                        ModifiedAt: modifiedAt,
+                        Description: x.Description?.Trim() ?? x.Desc?.Trim());
             })
             .ToList();
     }
@@ -451,6 +452,12 @@ public sealed class FourMemeClient : IFourMemeClient
 
         [JsonPropertyName("symbol")]
         public string? Symbol { get; set; }
+
+        [JsonPropertyName("description")]
+        public string? Description { get; set; }
+
+        [JsonPropertyName("desc")]
+        public string? Desc { get; set; }
 
         [JsonPropertyName("userAddress")]
         public string? UserAddress { get; set; }

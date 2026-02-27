@@ -26,7 +26,9 @@ public static class RiskFlags
         ["IMAGE_REUSED"] = ("Image reused", SeverityLow, 10),
         ["SYMBOL_TOO_SHORT"] = ("Short symbol", SeverityLow, 10),
         ["SYMBOL_RANDOMIZED"] = ("Random symbol", SeverityMedium, 15),
-        ["NAME_TOO_GENERIC"] = ("Generic hype", SeverityMedium, 15)
+        ["NAME_TOO_GENERIC"] = ("Generic hype", SeverityMedium, 15),
+        ["EMPTY_DESCRIPTION"] = ("Empty description", SeverityLow, 5),
+        ["LINK_IN_DESCRIPTION"] = ("External link in description", SeverityMedium, 10)
     };
 
     /// <summary>
