@@ -12,5 +12,8 @@ public sealed record TokenDto(
     string? WebUrl = null,
     string? TelegramUrl = null,
     string? TwitterUrl = null,
-    DateTimeOffset? ModifiedAt = null
+    DateTimeOffset? ModifiedAt = null,
+    string? Description = null,
+    string? Desc = null,
+    Dictionary<string, string>? Extra = null
 );

@@ -80,5 +80,8 @@ public sealed class FourMemeSource : IFourMemeMainListSource
             token.WebUrl,
             token.TelegramUrl,
             token.TwitterUrl,
-            token.ModifiedAt);
+            token.ModifiedAt,
+            token.Description,
+            token.Desc,
+            token.Extra);
 }

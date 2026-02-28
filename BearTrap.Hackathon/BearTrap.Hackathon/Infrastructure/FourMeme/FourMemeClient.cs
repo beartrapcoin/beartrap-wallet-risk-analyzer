@@ -112,8 +112,10 @@ public sealed class FourMemeClient : IFourMemeClient
                     WebUrl: x.WebUrl?.Trim(),
                     TelegramUrl: x.TelegramUrl?.Trim(),
                     TwitterUrl: x.TwitterUrl?.Trim(),
-                        ModifiedAt: modifiedAt,
-                        Description: x.Description?.Trim() ?? x.Desc?.Trim());
+                    ModifiedAt: modifiedAt,
+                    Description: x.Description?.Trim(),
+                    Desc: x.Desc?.Trim(),
+                    Extra: ExtractStringExtra(x.Extra));
             })
             .ToList();
     }
@@ -420,6 +422,30 @@ public sealed class FourMemeClient : IFourMemeClient
             FourMemeOrderBy.LastTrade => "LastTradeDesc",
             _ => "Hot"
         };
+    }
+
+    private static Dictionary<string, string>? ExtractStringExtra(Dictionary<string, JsonElement>? extra)
+    {
+        if (extra is null || extra.Count == 0)
+        {
+            return null;
+        }
+
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (key, value) in extra)
+        {
+            if (value.ValueKind == JsonValueKind.String)
+            {
+                var text = value.GetString();
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    result[key] = text.Trim();
+                }
+            }
+        }
+
+        return result.Count == 0 ? null : result;
     }
 
     // ===== DTO Classes for Four.Meme API Response =====

@@ -275,10 +275,11 @@ public sealed class RiskAnalyzer
     {
         var name = token.Name?.Trim() ?? string.Empty;
         var symbol = token.Symbol?.Trim() ?? string.Empty;
-        var description = token.Description?.Trim() ?? string.Empty;
+        var effectiveDescription = GetEffectiveDescription(token);
+        var description = effectiveDescription ?? string.Empty;
 
         // EMPTY_DESCRIPTION (+5): missing or very short token description
-        if ((string.IsNullOrWhiteSpace(token.Description) || description.Length < 12) &&
+        if ((string.IsNullOrWhiteSpace(effectiveDescription) || description.Length < 10) &&
             !flags.Any(flag => flag.Code == EmptyDescriptionFlagCode))
         {
             flags.Add(CreateFlag(EmptyDescriptionFlagCode, "Token description is empty or extremely short."));
@@ -411,6 +412,29 @@ public sealed class RiskAnalyzer
 
     private static bool ContainsDescriptionExternalLink(string text)
         => Regex.IsMatch(text, @"(https?://|www\.|\.com\b|\.io\b|\.net\b|t\.me/|x\.com/)", SuspiciousRegexOptions);
+
+    private static string? GetEffectiveDescription(LatestToken token)
+    {
+        if (!string.IsNullOrWhiteSpace(token.Description))
+        {
+            return token.Description.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(token.Desc))
+        {
+            return token.Desc.Trim();
+        }
+
+        // Four.Meme often stores description in Extra["descr"].
+        if (token.Extra is not null &&
+            token.Extra.TryGetValue("descr", out var descr) &&
+            !string.IsNullOrWhiteSpace(descr))
+        {
+            return descr.Trim();
+        }
+
+        return null;
+    }
 
     private static int CountSuspiciousSpecialChars(string text)
         => text.Count(ch => SuspiciousSpecialChars.Contains(ch));
