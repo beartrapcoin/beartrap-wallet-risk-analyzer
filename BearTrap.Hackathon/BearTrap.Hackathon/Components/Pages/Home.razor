@@ -236,6 +236,26 @@
                                     </div>
                                 </div>
                             </div>
+
+                            @{
+                                var tokenLinks = BuildTokenLinks(row.Token, row.Report);
+                            }
+
+                            @if (tokenLinks.Any())
+                            {
+                                <div class="token-links" aria-label="Token links">
+                                    @foreach (var link in tokenLinks)
+                                    {
+                                        <a class="btn btn-sm btn-outline-secondary token-link-btn"
+                                           href="@link.Url"
+                                           target="_blank"
+                                           rel="noopener noreferrer"
+                                           title="@link.Url">
+                                            @link.Label
+                                        </a>
+                                    }
+                                </div>
+                            }
                             
                             <!-- Bottom Strip: Flags -->
                             <div class="tcard-bottom" id="@GetFlagsContainerId(row.Token.Address)" data-flags-token-key="@NormalizeTokenKey(row.Token.Address)">
@@ -471,6 +491,35 @@
         margin-top: 4px;
         padding: 6px 0 0;
         border-top: 1px solid rgba(20,17,12,0.08);
+    }
+
+    .token-links {
+        margin-top: 6px;
+        display: flex;
+        flex-wrap: wrap;
+    }
+
+    .token-link-btn {
+        margin-right: 6px;
+        margin-bottom: 4px;
+        padding: 2px 8px;
+        border-radius: 7px;
+        border-color: rgba(20,17,12,0.16);
+        background: rgba(255,250,240,0.64);
+        color: var(--bt-ink-1);
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-decoration: none;
+        transition: all 0.15s ease;
+    }
+
+    .token-link-btn:hover,
+    .token-link-btn:focus-visible {
+        background: rgba(242,193,78,0.18);
+        border-color: rgba(201,146,26,0.46);
+        color: var(--bt-ink-0);
+        text-decoration: none;
+        outline: none;
     }
 
     .tcard-progress-header {
@@ -2053,6 +2102,93 @@
 
     private static string GetFourMemeUserUrl(string? creatorUserId)
         => $"https://four.meme/user/{Uri.EscapeDataString((creatorUserId ?? string.Empty).Trim())}";
+
+    private static List<TokenLink> BuildTokenLinks(LatestToken token, RiskReport report)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var links = new List<TokenLink>();
+
+        AddTokenLink(token.WebUrl, seen, links);
+        AddTokenLink(token.TwitterUrl, seen, links);
+        AddTokenLink(token.TelegramUrl, seen, links);
+
+        foreach (var descriptionLink in report.DescriptionLinks)
+        {
+            AddTokenLink(descriptionLink, seen, links);
+        }
+
+        return links;
+    }
+
+    private static void AddTokenLink(string? rawUrl, HashSet<string> seen, List<TokenLink> links)
+    {
+        var normalizedUrl = NormalizeTokenLinkUrl(rawUrl);
+        if (string.IsNullOrWhiteSpace(normalizedUrl))
+        {
+            return;
+        }
+
+        if (!seen.Add(normalizedUrl))
+        {
+            return;
+        }
+
+        links.Add(new TokenLink(
+            normalizedUrl,
+            GetLinkLabel(normalizedUrl)));
+    }
+
+    private static string? NormalizeTokenLinkUrl(string? rawUrl)
+    {
+        if (string.IsNullOrWhiteSpace(rawUrl))
+        {
+            return null;
+        }
+
+        var trimmed = rawUrl.Trim().TrimEnd('.', ',', ';', ':', '!', '?', ')', ']', '}');
+        if (trimmed.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
+        {
+            trimmed = $"https://{trimmed}";
+        }
+
+        if (!Uri.TryCreate(trimmed, UriKind.Absolute, out var uri))
+        {
+            return null;
+        }
+
+        if (!string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return uri.AbsoluteUri;
+    }
+
+    private static string GetLinkLabel(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            return url;
+        }
+
+        var host = uri.Host.StartsWith("www.", StringComparison.OrdinalIgnoreCase)
+            ? uri.Host[4..]
+            : uri.Host;
+
+        var path = uri.AbsolutePath.Trim('/');
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return host;
+        }
+
+        var firstPathSegment = path.Split('/', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        return string.IsNullOrWhiteSpace(firstPathSegment)
+            ? host
+            : $"{host}/{firstPathSegment}";
+    }
+
+    private sealed record TokenLink(string Url, string Label);
 }
 
 @code {

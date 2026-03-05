@@ -208,8 +208,10 @@ public sealed class RiskAnalyzer
             // External paid promotion check (DexScreener)
             await AnalyzeDexScreenerFlagsAsync(token, flags, ct);
 
+            var descriptionLinks = ExtractDescriptionLinks(GetEffectiveDescription(token));
+
             var score = Math.Min(100, flags.Sum(f => f.Points));
-            results.Add((token, new RiskReport(score, flags)));
+            results.Add((token, new RiskReport(score, flags, descriptionLinks)));
         }
 
         return results;
@@ -616,6 +618,57 @@ public sealed class RiskAnalyzer
         }
 
         return null;
+    }
+
+    private static List<string> ExtractDescriptionLinks(string? description)
+    {
+        if (string.IsNullOrWhiteSpace(description))
+        {
+            return new List<string>();
+        }
+
+        var matches = Regex.Matches(description, @"(https?://[^\s]+|www\.[^\s]+)", SuspiciousRegexOptions);
+        if (matches.Count == 0)
+        {
+            return new List<string>();
+        }
+
+        var links = new List<string>();
+
+        foreach (Match match in matches)
+        {
+            var raw = match.Value?.Trim();
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                continue;
+            }
+
+            var cleaned = raw.TrimEnd('.', ',', ';', ':', '!', '?', ')', ']', '}');
+
+            if (cleaned.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
+            {
+                cleaned = $"https://{cleaned}";
+            }
+
+            if (!Uri.TryCreate(cleaned, UriKind.Absolute, out var uri))
+            {
+                continue;
+            }
+
+            if (!string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var normalized = uri.AbsoluteUri;
+            if (!links.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+            {
+                links.Add(normalized);
+            }
+        }
+
+        return links;
     }
 
     private static int CountSuspiciousSpecialChars(string text)
