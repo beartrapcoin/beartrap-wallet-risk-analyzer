@@ -28,7 +28,8 @@ public static class RiskFlags
         ["SYMBOL_RANDOMIZED"] = ("Random symbol", SeverityMedium, 15),
         ["NAME_TOO_GENERIC"] = ("Generic hype", SeverityMedium, 15),
         ["EMPTY_DESCRIPTION"] = ("Empty description", SeverityLow, 5),
-        ["LINK_IN_DESCRIPTION"] = ("External link in description", SeverityMedium, 10),
+        ["EXTERNAL_LINK_IN_DESC"] = ("External website in description", SeverityLow, 5),
+        ["SUSPICIOUS_DOMAIN"] = ("Suspicious domain detected", SeverityMedium, 10),
         ["BOOSTED_VISIBILITY"] = ("Paid promotion detected", SeverityMedium, 15)
     };
 

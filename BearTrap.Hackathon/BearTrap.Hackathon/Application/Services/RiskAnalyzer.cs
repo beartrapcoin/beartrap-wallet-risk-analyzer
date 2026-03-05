@@ -36,8 +36,49 @@ public sealed class RiskAnalyzer
     private const string NoSocialsFlagCode = "NO_SOCIALS";
     private const string MetadataChangedFlagCode = "METADATA_CHANGED";
     private const string EmptyDescriptionFlagCode = "EMPTY_DESCRIPTION";
-    private const string LinkInDescriptionFlagCode = "LINK_IN_DESCRIPTION";
+    private const string ExternalLinkInDescriptionFlagCode = "EXTERNAL_LINK_IN_DESC";
+    private const string SuspiciousDomainFlagCode = "SUSPICIOUS_DOMAIN";
     private const string BoostedVisibilityFlagCode = "BOOSTED_VISIBILITY";
+
+    private static readonly string[] IgnoredSocialDomains =
+    [
+        "x.com",
+        "twitter.com",
+        "t.me",
+        "telegram.me",
+        "discord.gg",
+        "discord.com",
+        "instagram.com",
+        "facebook.com",
+        "youtube.com"
+    ];
+
+    private static readonly string[] SuspiciousDomainPatterns =
+    [
+        ".xyz",
+        ".top",
+        ".click",
+        ".guru",
+        ".site",
+        ".store",
+        ".live",
+        "buzz",
+        "monster",
+        "bit.ly",
+        "tinyurl"
+    ];
+
+    private static readonly string[] KnownShortenerDomains =
+    [
+        "bit.ly",
+        "tinyurl.com",
+        "t.co",
+        "rb.gy",
+        "is.gd",
+        "ow.ly",
+        "shorturl.at",
+        "buff.ly"
+    ];
 
     private static bool _heuristicExamplesLogged;
 
@@ -292,13 +333,8 @@ public sealed class RiskAnalyzer
             AddFlagIfMissing(flags, CreateFlag(EmptyDescriptionFlagCode, "Token description is empty or extremely short."));
         }
 
-        // LINK_IN_DESCRIPTION (+10): description contains external links/domains
-        if (!string.IsNullOrWhiteSpace(description) &&
-            ContainsDescriptionExternalLink(description) &&
-            !flags.Any(flag => flag.Code == LinkInDescriptionFlagCode))
-        {
-            AddFlagIfMissing(flags, CreateFlag(LinkInDescriptionFlagCode, "Token description contains an external link (possible phishing)."));
-        }
+        // Description link check: ignore social links, prefer suspicious domain over generic external links.
+        AnalyzeDescriptionLinkFlags(description, flags);
 
         // SYMBOL_TOO_SHORT (+10): Symbol length <= 2
         if (symbol.Length > 0 && symbol.Length <= 2)
@@ -446,8 +482,118 @@ public sealed class RiskAnalyzer
     private static bool ContainsUrl(string text)
         => Regex.IsMatch(text, @"(https?://|www\.|\.com\b|\.io\b|\.net\b)", SuspiciousRegexOptions);
 
-    private static bool ContainsDescriptionExternalLink(string text)
-        => Regex.IsMatch(text, @"(https?://|www\.|\.com\b|\.io\b|\.net\b|t\.me/|x\.com/)", SuspiciousRegexOptions);
+    private static void AnalyzeDescriptionLinkFlags(string description, List<RiskFlag> flags)
+    {
+        if (string.IsNullOrWhiteSpace(description))
+        {
+            return;
+        }
+
+        var linkCandidates = ExtractDescriptionLinkCandidates(description);
+        if (linkCandidates.Count == 0)
+        {
+            return;
+        }
+
+        var hasSuspiciousDomain = false;
+        var hasExternalNonSocialDomain = false;
+
+        foreach (var candidate in linkCandidates)
+        {
+            var normalizedDomain = ExtractNormalizedDomain(candidate);
+            if (string.IsNullOrWhiteSpace(normalizedDomain))
+            {
+                continue;
+            }
+
+            if (IsIgnoredSocialDomain(normalizedDomain))
+            {
+                continue;
+            }
+
+            if (IsSuspiciousDomain(normalizedDomain))
+            {
+                hasSuspiciousDomain = true;
+                break;
+            }
+
+            hasExternalNonSocialDomain = true;
+        }
+
+        if (hasSuspiciousDomain)
+        {
+            AddFlagIfMissing(flags, new RiskFlag(
+                SuspiciousDomainFlagCode,
+                "Suspicious domain detected",
+                "Token description contains a link to a suspicious domain.",
+                10));
+            return;
+        }
+
+        if (hasExternalNonSocialDomain)
+        {
+            AddFlagIfMissing(flags, new RiskFlag(
+                ExternalLinkInDescriptionFlagCode,
+                "External website in description",
+                "Token description contains an external website.",
+                5));
+        }
+    }
+
+    private static List<string> ExtractDescriptionLinkCandidates(string text)
+    {
+        var matches = Regex.Matches(text, @"(https?://[^\s]+|www\.[^\s]+|[a-z0-9][a-z0-9.-]*\.(com|io|net|org)\b[^\s]*)", SuspiciousRegexOptions);
+
+        return matches
+            .Select(match => match.Value)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static string? ExtractNormalizedDomain(string linkCandidate)
+    {
+        if (string.IsNullOrWhiteSpace(linkCandidate))
+        {
+            return null;
+        }
+
+        var trimmed = linkCandidate.Trim().TrimEnd('.', ',', ';', ':', '!', '?', ')', ']', '}');
+        var withScheme = trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                         trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+            ? trimmed
+            : $"https://{trimmed}";
+
+        if (!Uri.TryCreate(withScheme, UriKind.Absolute, out var uri))
+        {
+            return null;
+        }
+
+        var host = uri.Host.Trim().ToLowerInvariant();
+        if (host.StartsWith("www.", StringComparison.Ordinal))
+        {
+            host = host[4..];
+        }
+
+        return string.IsNullOrWhiteSpace(host) ? null : host;
+    }
+
+    private static bool IsIgnoredSocialDomain(string domain)
+        => IgnoredSocialDomains.Any(social =>
+            domain.Equals(social, StringComparison.OrdinalIgnoreCase) ||
+            domain.EndsWith($".{social}", StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsSuspiciousDomain(string domain)
+    {
+        if (KnownShortenerDomains.Any(shortener =>
+            domain.Equals(shortener, StringComparison.OrdinalIgnoreCase) ||
+            domain.EndsWith($".{shortener}", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        return SuspiciousDomainPatterns.Any(pattern => domain.Contains(pattern, StringComparison.OrdinalIgnoreCase));
+    }
 
     private static string? GetEffectiveDescription(LatestToken token)
     {
@@ -482,7 +628,8 @@ public sealed class RiskAnalyzer
             NoSocialsFlagCode => new RiskFlag(NoSocialsFlagCode, "No socials", reason, 5),
             MetadataChangedFlagCode => new RiskFlag(MetadataChangedFlagCode, "Metadata changed", reason, 5),
             EmptyDescriptionFlagCode => new RiskFlag(EmptyDescriptionFlagCode, "Empty description", reason, 5),
-            LinkInDescriptionFlagCode => new RiskFlag(LinkInDescriptionFlagCode, "External link in description", reason, 10),
+            ExternalLinkInDescriptionFlagCode => new RiskFlag(ExternalLinkInDescriptionFlagCode, "External website in description", reason, 5),
+            SuspiciousDomainFlagCode => new RiskFlag(SuspiciousDomainFlagCode, "Suspicious domain detected", reason, 10),
             _ => new RiskFlag(code, code, reason, 0)
         };
 
