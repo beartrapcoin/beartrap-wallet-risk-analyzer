@@ -16,6 +16,9 @@ public class AppDbContext : DbContext
             .HasIndex(x => x.Address)
             .IsUnique();
 
+        modelBuilder.Entity<TokenSnapshotEntity>()
+            .HasIndex(x => x.ImageKey);
+
         modelBuilder.Entity<RiskReportEntity>()
             .HasIndex(x => x.TokenAddress);
     }

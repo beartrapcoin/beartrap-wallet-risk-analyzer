@@ -80,6 +80,17 @@ public sealed class RiskAnalyzer
         "buff.ly"
     ];
 
+    private static readonly string[] PreferredImageFingerprintKeys =
+    [
+        "imageHash",
+        "image_hash",
+        "imageFingerprint",
+        "image_fingerprint",
+        "fingerprint",
+        "imgHash",
+        "img_hash"
+    ];
+
     private static bool _heuristicExamplesLogged;
 
     public RiskAnalyzer(
@@ -132,11 +143,6 @@ public sealed class RiskAnalyzer
             .GroupBy(t => NormalizeTokenName(t.Name))
             .ToDictionary(g => g.Key, g => g.Count());
 
-        var imageUrlCounts = tokenList
-            .Where(t => !string.IsNullOrWhiteSpace(t.ImageUrl))
-            .GroupBy(t => t.ImageUrl!.Trim(), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
-
         var firstContractForName = tokenList
             .Select((token, index) => new
             {
@@ -163,7 +169,10 @@ public sealed class RiskAnalyzer
         // --- Step 2: Ensure all token snapshots exist ---
         foreach (var token in tokenList)
         {
-            if (!await _db.TokenSnapshots.AnyAsync(x => x.Address == token.Address, ct))
+            var imageKey = BuildImageKey(token);
+            var existingSnapshot = await _db.TokenSnapshots.FirstOrDefaultAsync(x => x.Address == token.Address, ct);
+
+            if (existingSnapshot is null)
             {
                 var snapshot = new TokenSnapshotEntity
                 {
@@ -171,7 +180,9 @@ public sealed class RiskAnalyzer
                     Name = token.Name,
                     Symbol = token.Symbol,
                     Creator = token.Creator,
-                    CreatedAt = token.CreatedAt == default ? DateTimeOffset.UtcNow : token.CreatedAt
+                    ImageKey = imageKey,
+                    CreatedAt = token.CreatedAt == default ? DateTimeOffset.UtcNow : token.CreatedAt,
+                    FirstSeenAt = DateTimeOffset.UtcNow
                 };
 
                 _db.TokenSnapshots.Add(snapshot);
@@ -189,6 +200,17 @@ public sealed class RiskAnalyzer
                     }
                 }
             }
+            else if (!string.IsNullOrWhiteSpace(imageKey) &&
+                     !string.Equals(existingSnapshot.ImageKey, imageKey, StringComparison.Ordinal))
+            {
+                existingSnapshot.ImageKey = imageKey;
+                if (existingSnapshot.FirstSeenAt == default)
+                {
+                    existingSnapshot.FirstSeenAt = DateTimeOffset.UtcNow;
+                }
+
+                await _db.SaveChangesAsync(ct);
+            }
         }
 
         // --- Step 3: Analyze each token ---
@@ -197,7 +219,7 @@ public sealed class RiskAnalyzer
             var flags = new List<RiskFlag>();
 
             // Batch-based flags
-            AnalyzeBatchFlags(token, creatorCounts, nameCounts, firstContractForName, imageUrlCounts, flags);
+            AnalyzeBatchFlags(token, creatorCounts, nameCounts, firstContractForName, flags);
 
             // Database-based flags
             await AnalyzeDatabaseFlagsAsync(token, flags, ct);
@@ -225,7 +247,6 @@ public sealed class RiskAnalyzer
         Dictionary<string, int> creatorCounts,
         Dictionary<string, int> nameCounts,
         Dictionary<string, string> firstContractForName,
-        Dictionary<string, int> imageUrlCounts,
         List<RiskFlag> flags)
     {
         // CREATOR_BURST (+30): Same creator appears >= 3 times in batch
@@ -261,16 +282,6 @@ public sealed class RiskAnalyzer
             }
         }
 
-        // IMAGE_REUSED (+10): Same image URL appears > 1 time in current list
-        var imageUrl = token.ImageUrl?.Trim();
-        if (!string.IsNullOrWhiteSpace(imageUrl) && imageUrlCounts.TryGetValue(imageUrl, out var imageCount) && imageCount > 1)
-        {
-            AddFlagIfMissing(flags, new RiskFlag(
-                "IMAGE_REUSED",
-                "Image reused",
-                "Another token in the current list uses the same image URL.",
-                10));
-        }
     }
 
     /// <summary>
@@ -316,6 +327,47 @@ public sealed class RiskAnalyzer
                 "The same creator has previously used this name or symbol.",
                 15));
         }
+
+        await AnalyzeImageReuseHistoryFlagAsync(token, flags, ct);
+    }
+
+    private async Task AnalyzeImageReuseHistoryFlagAsync(LatestToken token, List<RiskFlag> flags, CancellationToken ct)
+    {
+        var imageKey = BuildImageKey(token);
+        if (string.IsNullOrWhiteSpace(imageKey))
+        {
+            return;
+        }
+
+        var candidates = await _db.TokenSnapshots
+            .AsNoTracking()
+            .Where(x => x.ImageKey == imageKey)
+            .ToListAsync(ct);
+
+        var earliest = candidates
+            .OrderBy(x => x.CreatedAt)
+            .ThenBy(x => x.FirstSeenAt)
+            .ThenBy(x => x.Id)
+            .FirstOrDefault();
+
+        if (earliest is null)
+        {
+            return;
+        }
+
+        var tokenAddress = NormalizeAddress(token.Address);
+        var earliestAddress = NormalizeAddress(earliest.Address);
+
+        if (string.Equals(earliestAddress, tokenAddress, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        AddFlagIfMissing(flags, new RiskFlag(
+            "IMAGE_REUSED",
+            "Image reused",
+            $"Image reused. First seen in token {earliest.Address}.",
+            10));
     }
 
     /// <summary>
@@ -669,6 +721,72 @@ public sealed class RiskAnalyzer
         }
 
         return links;
+    }
+
+    private static string? BuildImageKey(LatestToken token)
+    {
+        var fingerprint = TryGetImageFingerprint(token);
+        if (!string.IsNullOrWhiteSpace(fingerprint))
+        {
+            return $"hash:{fingerprint}";
+        }
+
+        return NormalizeImageUrlKey(token.ImageUrl);
+    }
+
+    private static string? TryGetImageFingerprint(LatestToken token)
+    {
+        if (token.Extra is null || token.Extra.Count == 0)
+        {
+            return null;
+        }
+
+        foreach (var preferredKey in PreferredImageFingerprintKeys)
+        {
+            var match = token.Extra
+                .FirstOrDefault(kv => string.Equals(kv.Key, preferredKey, StringComparison.OrdinalIgnoreCase));
+
+            if (!string.IsNullOrWhiteSpace(match.Value))
+            {
+                return match.Value.Trim().ToLowerInvariant();
+            }
+        }
+
+        return null;
+    }
+
+    private static string? NormalizeImageUrlKey(string? rawUrl)
+    {
+        if (string.IsNullOrWhiteSpace(rawUrl))
+        {
+            return null;
+        }
+
+        var cleaned = rawUrl.Trim();
+        if (cleaned.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
+        {
+            cleaned = $"https://{cleaned}";
+        }
+
+        if (Uri.TryCreate(cleaned, UriKind.Absolute, out var uri))
+        {
+            var host = uri.Host.Trim().ToLowerInvariant();
+            var path = uri.AbsolutePath.Trim().TrimEnd('/');
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                path = "/";
+            }
+
+            return $"url:{host}{path}";
+        }
+
+        var withoutQuery = cleaned.Split('?', '#')[0].TrimEnd('/').ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(withoutQuery))
+        {
+            return null;
+        }
+
+        return $"url:{withoutQuery}";
     }
 
     private static int CountSuspiciousSpecialChars(string text)

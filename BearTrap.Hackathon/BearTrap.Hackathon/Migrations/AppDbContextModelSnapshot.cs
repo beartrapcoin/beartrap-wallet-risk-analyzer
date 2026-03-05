@@ -68,6 +68,9 @@ namespace BearTrap.Hackathon.Migrations
                     b.Property<DateTimeOffset>("FirstSeenAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("ImageKey")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -80,6 +83,8 @@ namespace BearTrap.Hackathon.Migrations
 
                     b.HasIndex("Address")
                         .IsUnique();
+
+                    b.HasIndex("ImageKey");
 
                     b.ToTable("TokenSnapshots");
                 });

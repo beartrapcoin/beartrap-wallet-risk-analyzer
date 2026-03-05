@@ -7,6 +7,7 @@
         public string Name { get; set; } = "";
         public string Symbol { get; set; } = "";
         public string Creator { get; set; } = "";
+        public string? ImageKey { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
         public DateTimeOffset FirstSeenAt { get; set; }
     }

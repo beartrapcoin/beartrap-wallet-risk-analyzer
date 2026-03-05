@@ -10,6 +10,7 @@ using BearTrap.Hackathon.Infrastructure.FourMeme;
 using BearTrap.Hackathon.Infrastructure.Rpc;
 using BearTrap.Hackathon.Services.DataSources;
 using Microsoft.EntityFrameworkCore;
+using System.Data;
 using System.Net;
 using System.Threading.RateLimiting;
 
@@ -203,6 +204,10 @@ using (var scope = app.Services.CreateScope())
         {
             logger.LogInformation("Database is up to date. No migrations to apply.");
         }
+
+        // Safety net for environments with inconsistent migration history.
+        // Ensures IMAGE_REUSED queries won't fail with "no such column: ImageKey".
+        EnsureSqliteImageKeyColumn(db, logger);
         
         // Verify tables exist
         var canConnect = db.Database.CanConnect();
@@ -224,6 +229,60 @@ using (var scope = app.Services.CreateScope())
         logger.LogError("ContentRootPath: {ContentRoot}", builder.Environment.ContentRootPath);
         throw; // Re-throw to prevent app from starting with broken database
     }
+}
+
+static void EnsureSqliteImageKeyColumn(AppDbContext db, ILogger logger)
+{
+    if (!db.Database.IsSqlite())
+    {
+        return;
+    }
+
+    var connection = db.Database.GetDbConnection();
+    var shouldClose = connection.State != ConnectionState.Open;
+
+    try
+    {
+        if (shouldClose)
+        {
+            connection.Open();
+        }
+
+        if (SqliteColumnExists(connection, "TokenSnapshots", "ImageKey"))
+        {
+            return;
+        }
+
+        logger.LogWarning("Column TokenSnapshots.ImageKey is missing. Applying startup self-heal schema patch.");
+        db.Database.ExecuteSqlRaw("ALTER TABLE TokenSnapshots ADD COLUMN ImageKey TEXT NULL;");
+        db.Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS IX_TokenSnapshots_ImageKey ON TokenSnapshots (ImageKey);");
+        logger.LogInformation("Startup self-heal applied: added TokenSnapshots.ImageKey and index.");
+    }
+    finally
+    {
+        if (shouldClose)
+        {
+            connection.Close();
+        }
+    }
+}
+
+static bool SqliteColumnExists(System.Data.Common.DbConnection connection, string tableName, string columnName)
+{
+    using var command = connection.CreateCommand();
+    command.CommandText = $"PRAGMA table_info('{tableName}');";
+
+    using var reader = command.ExecuteReader();
+    while (reader.Read())
+    {
+        var existingName = reader["name"]?.ToString();
+        if (string.Equals(existingName, columnName, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 app.Run();
