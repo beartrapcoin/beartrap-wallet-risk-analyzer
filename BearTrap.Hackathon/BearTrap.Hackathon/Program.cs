@@ -4,6 +4,7 @@ using BearTrap.Hackathon.Components;
 using BearTrap.Hackathon.Data;
 using BearTrap.Hackathon.Infrastructure.Bitquery;
 using BearTrap.Hackathon.Infrastructure.Caching;
+using BearTrap.Hackathon.Infrastructure.DexScreener;
 using BearTrap.Hackathon.Infrastructure.DataSources;
 using BearTrap.Hackathon.Infrastructure.FourMeme;
 using BearTrap.Hackathon.Infrastructure.Rpc;
@@ -46,6 +47,14 @@ builder.Services.AddHttpClient<IBnbRpcClient, BnbRpcClient>((sp, c) =>
     }
 
     c.Timeout = TimeSpan.FromSeconds(30);
+    c.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+});
+
+// Typed HttpClient for DexScreener paid visibility endpoint
+builder.Services.AddHttpClient<IDexScreenerClient, DexScreenerClient>(c =>
+{
+    c.BaseAddress = new Uri("https://api.dexscreener.com/");
+    c.Timeout = TimeSpan.FromSeconds(5);
     c.DefaultRequestHeaders.Accept.ParseAdd("application/json");
 });
 

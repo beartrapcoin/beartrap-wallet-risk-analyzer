@@ -18,6 +18,7 @@ public sealed class RiskAnalyzer
     private readonly AppDbContext _db;
     private readonly IFourMemeSource _fourMemeSource;
     private readonly IBnbRpcClient _bnbRpcClient;
+    private readonly IDexScreenerClient _dexScreenerClient;
     private readonly ILogger<RiskAnalyzer> _logger;
 
     // Generic scam keywords for NAME_TOO_GENERIC flag
@@ -36,6 +37,7 @@ public sealed class RiskAnalyzer
     private const string MetadataChangedFlagCode = "METADATA_CHANGED";
     private const string EmptyDescriptionFlagCode = "EMPTY_DESCRIPTION";
     private const string LinkInDescriptionFlagCode = "LINK_IN_DESCRIPTION";
+    private const string BoostedVisibilityFlagCode = "BOOSTED_VISIBILITY";
 
     private static bool _heuristicExamplesLogged;
 
@@ -43,11 +45,13 @@ public sealed class RiskAnalyzer
         AppDbContext db,
         IFourMemeSource fourMemeSource,
         IBnbRpcClient bnbRpcClient,
+        IDexScreenerClient dexScreenerClient,
         ILogger<RiskAnalyzer> logger)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
         _fourMemeSource = fourMemeSource ?? throw new ArgumentNullException(nameof(fourMemeSource));
         _bnbRpcClient = bnbRpcClient ?? throw new ArgumentNullException(nameof(bnbRpcClient));
+        _dexScreenerClient = dexScreenerClient ?? throw new ArgumentNullException(nameof(dexScreenerClient));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
         LogSuspiciousHeuristicExamples();
@@ -160,6 +164,9 @@ public sealed class RiskAnalyzer
             // Pattern-based flags
             AnalyzePatternFlags(token, flags);
 
+            // External paid promotion check (DexScreener)
+            await AnalyzeDexScreenerFlagsAsync(token, flags, ct);
+
             var score = Math.Min(100, flags.Sum(f => f.Points));
             results.Add((token, new RiskReport(score, flags)));
         }
@@ -184,7 +191,7 @@ public sealed class RiskAnalyzer
         {
             if (creatorCount >= 3)
             {
-                flags.Add(new RiskFlag(
+                AddFlagIfMissing(flags, new RiskFlag(
                     "CREATOR_BURST",
                     "Creator burst deploys",
                     $"Creator deployed {creatorCount} tokens in this batch.",
@@ -203,7 +210,7 @@ public sealed class RiskAnalyzer
             // Hackathon: only tokens after the first occurrence are marked as duplicates
             if (nameCount > 1 && duplicateName)
             {
-                flags.Add(new RiskFlag(
+                AddFlagIfMissing(flags, new RiskFlag(
                     "DUPLICATE_NAME_IN_BATCH",
                     "Duplicate name in batch",
                     $"Name '{token.Name}' appears {nameCount} times in this batch.",
@@ -215,7 +222,7 @@ public sealed class RiskAnalyzer
         var imageUrl = token.ImageUrl?.Trim();
         if (!string.IsNullOrWhiteSpace(imageUrl) && imageUrlCounts.TryGetValue(imageUrl, out var imageCount) && imageCount > 1)
         {
-            flags.Add(new RiskFlag(
+            AddFlagIfMissing(flags, new RiskFlag(
                 "IMAGE_REUSED",
                 "Image reused",
                 "Another token in the current list uses the same image URL.",
@@ -241,7 +248,7 @@ public sealed class RiskAnalyzer
         var creatorCount = creatorTokens.Count(x => x.CreatedAt >= since);
         if (creatorCount >= 3)
         {
-            flags.Add(new RiskFlag(
+            AddFlagIfMissing(flags, new RiskFlag(
                 "CREATOR_SPAM",
                 "Creator spam",
                 $"Creator {token.Creator} created {creatorCount} tokens in the last 24 hours.",
@@ -260,7 +267,7 @@ public sealed class RiskAnalyzer
 
         if (reused)
         {
-            flags.Add(new RiskFlag(
+            AddFlagIfMissing(flags, new RiskFlag(
                 "NAME_REUSED",
                 "Name reused by creator",
                 "The same creator has previously used this name or symbol.",
@@ -282,7 +289,7 @@ public sealed class RiskAnalyzer
         if ((string.IsNullOrWhiteSpace(effectiveDescription) || description.Length < 10) &&
             !flags.Any(flag => flag.Code == EmptyDescriptionFlagCode))
         {
-            flags.Add(CreateFlag(EmptyDescriptionFlagCode, "Token description is empty or extremely short."));
+            AddFlagIfMissing(flags, CreateFlag(EmptyDescriptionFlagCode, "Token description is empty or extremely short."));
         }
 
         // LINK_IN_DESCRIPTION (+10): description contains external links/domains
@@ -290,13 +297,13 @@ public sealed class RiskAnalyzer
             ContainsDescriptionExternalLink(description) &&
             !flags.Any(flag => flag.Code == LinkInDescriptionFlagCode))
         {
-            flags.Add(CreateFlag(LinkInDescriptionFlagCode, "Token description contains an external link (possible phishing)."));
+            AddFlagIfMissing(flags, CreateFlag(LinkInDescriptionFlagCode, "Token description contains an external link (possible phishing)."));
         }
 
         // SYMBOL_TOO_SHORT (+10): Symbol length <= 2
         if (symbol.Length > 0 && symbol.Length <= 2)
         {
-            flags.Add(new RiskFlag(
+            AddFlagIfMissing(flags, new RiskFlag(
                 "SYMBOL_TOO_SHORT",
                 "Very short symbol",
                 $"Symbol '{symbol}' is extremely short ({symbol.Length} characters).",
@@ -311,7 +318,7 @@ public sealed class RiskAnalyzer
 
             if (digitCount >= 2 || matchesSpamPattern)
             {
-                flags.Add(new RiskFlag(
+                AddFlagIfMissing(flags, new RiskFlag(
                     "SYMBOL_RANDOMIZED",
                     "Randomized symbol pattern",
                     $"Symbol '{symbol}' appears to be randomly generated or spam-like.",
@@ -329,7 +336,7 @@ public sealed class RiskAnalyzer
 
             if (matchedKeywords.Count >= 2)
             {
-                flags.Add(new RiskFlag(
+                AddFlagIfMissing(flags, new RiskFlag(
                     "NAME_TOO_GENERIC",
                     "Generic hype name",
                     $"Name contains generic scam keywords: {string.Join(", ", matchedKeywords)}.",
@@ -342,7 +349,7 @@ public sealed class RiskAnalyzer
 
         if (!string.IsNullOrWhiteSpace(suspiciousReason) && !flags.Any(flag => flag.Code == "NAME_SUS"))
         {
-            flags.Add(CreateFlag("NAME_SUS", suspiciousReason));
+            AddFlagIfMissing(flags, CreateFlag("NAME_SUS", suspiciousReason));
         }
 
         var hasNoSocials = string.IsNullOrWhiteSpace(token.WebUrl)
@@ -351,7 +358,7 @@ public sealed class RiskAnalyzer
 
         if (hasNoSocials && !flags.Any(flag => flag.Code == NoSocialsFlagCode))
         {
-            flags.Add(CreateFlag(NoSocialsFlagCode, "No website, Telegram or Twitter provided."));
+            AddFlagIfMissing(flags, CreateFlag(NoSocialsFlagCode, "No website, Telegram or Twitter provided."));
         }
 
         if (token.ModifiedAt.HasValue)
@@ -359,8 +366,37 @@ public sealed class RiskAnalyzer
             var minutesDiff = (token.ModifiedAt.Value - token.CreatedAt).TotalMinutes;
             if (minutesDiff >= 60 && !flags.Any(flag => flag.Code == MetadataChangedFlagCode))
             {
-                flags.Add(CreateFlag(MetadataChangedFlagCode, $"Metadata modified {(int)Math.Round(minutesDiff)} minutes after creation."));
+                AddFlagIfMissing(flags, CreateFlag(MetadataChangedFlagCode, $"Metadata modified {(int)Math.Round(minutesDiff)} minutes after creation."));
             }
+        }
+    }
+
+    private async Task AnalyzeDexScreenerFlagsAsync(LatestToken token, List<RiskFlag> flags, CancellationToken ct)
+    {
+        var address = token.Address?.Trim();
+        if (string.IsNullOrWhiteSpace(address))
+        {
+            return;
+        }
+
+        // Hackathon scope: tokens are BNB chain contracts, mapped to DexScreener "bsc".
+        var hasPaidVisibility = await _dexScreenerClient.HasPaidVisibilityAsync("bsc", address, ct);
+
+        if (hasPaidVisibility)
+        {
+            AddFlagIfMissing(flags, new RiskFlag(
+                BoostedVisibilityFlagCode,
+                "Paid promotion detected",
+                "Token has paid visibility on DexScreener (boost or paid profile detected).",
+                15));
+        }
+    }
+
+    private static void AddFlagIfMissing(List<RiskFlag> flags, RiskFlag flag)
+    {
+        if (!flags.Any(existing => string.Equals(existing.Code, flag.Code, StringComparison.Ordinal)))
+        {
+            flags.Add(flag);
         }
     }
 
