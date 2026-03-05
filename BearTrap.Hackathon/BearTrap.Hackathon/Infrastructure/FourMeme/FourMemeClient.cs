@@ -56,7 +56,7 @@ public sealed class FourMemeClient : IFourMemeClient
     {
         ct.ThrowIfCancellationRequested();
 
-        var pageSize = Math.Max(count, 30);
+        var pageSize = Math.Max(count, 10);
 
         var list = (await QueryTokensAsync(null, FourMemeOrderBy.TimeDesc, pageIndex: 1, pageSize, ct))
             .Take(count)
@@ -78,7 +78,7 @@ public sealed class FourMemeClient : IFourMemeClient
         var isSearchMode = !string.IsNullOrWhiteSpace(normalizedName);
         var apiOrderBy = ResolveApiOrderBy(orderBy, isSearchMode);
         var safePageIndex = Math.Max(1, pageIndex);
-        var safePageSize = Math.Max(1, pageSize);
+        var safePageSize = Math.Clamp(pageSize, 1, 10);
 
         var url =
             $"https://four.meme/meme-api/v1/private/token/query" +
@@ -91,7 +91,7 @@ public sealed class FourMemeClient : IFourMemeClient
         LogQueryJsonPreview(json);
 
         var dto = JsonSerializer.Deserialize<FourMemeQueryResponse>(json, JsonOptions);
-        var data = dto?.Data ?? new List<FourMemeTokenDto>();
+        var data = dto?.Data.Take(10) ?? new List<FourMemeTokenDto>();
 
         return data
             .Where(x => !string.IsNullOrWhiteSpace(x.Address))

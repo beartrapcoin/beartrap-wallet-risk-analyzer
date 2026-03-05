@@ -342,14 +342,23 @@
                     }
                 </div>
 
-                @if (CanLoadMore)
+                @if (ShouldShowLoadMore)
                 {
                     <div class="load-more-wrap">
                         <button type="button"
                                 class="btn-load-more"
                                 disabled="@_loadingMore"
+                                aria-busy="@_loadingMore"
                                 @onclick="LoadMoreAsync">
-                            @(_loadingMore ? "Loading..." : "Load more")
+                            @if (_loadingMore)
+                            {
+                                <span class="load-more-spinner" aria-hidden="true"></span>
+                                <span>Loading...</span>
+                            }
+                            else
+                            {
+                                <span>Load more</span>
+                            }
                         </button>
                     </div>
                 }
@@ -835,6 +844,10 @@
     }
 
     .btn-load-more {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
         padding: 9px 18px;
         border-radius: 10px;
         border: 1px solid rgba(201,146,26,0.32);
@@ -856,6 +869,21 @@
     .btn-load-more:disabled {
         opacity: 0.65;
         cursor: default;
+    }
+
+    .load-more-spinner {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        border: 2px solid rgba(20,17,12,0.20);
+        border-top-color: var(--bt-ink-1);
+        animation: loadMoreSpin 0.7s linear infinite;
+    }
+
+    @@keyframes loadMoreSpin {
+        to {
+            transform: rotate(360deg);
+        }
     }
     
     /* ========================================
@@ -2267,13 +2295,13 @@
     private string _activeQuery = string.Empty;
     private FourMemeOrderBy _selectedOrderBy = FourMemeOrderBy.TimeDesc;
     private int _searchPageIndex = 1;
-    private bool _hasMoreSearchPages;
+    private bool _hasMorePages;
     private bool _loadingMore;
+    private int _tokensLimit = LatestPageSize;
     private CancellationTokenSource? _requestCts;
 
-    private const int LatestPageSize = 6;
-    private const int SearchPageSize = 20;
-    private const int SearchMaxPages = 5;
+    private const int LatestPageSize = 10;
+    private const int SearchPageSize = 10;
     private const int EnrichmentMaxConcurrency = 4;
     
     private List<(LatestToken Token, RiskReport Report)> FilteredResults => _results;
@@ -2283,7 +2311,9 @@
     private bool IsBearTrapSearchActive =>
         string.Equals((_searchQuery ?? string.Empty).Trim(), "beartrap", StringComparison.OrdinalIgnoreCase);
 
-    private bool CanLoadMore => IsSearchMode && _hasMoreSearchPages && !_loading;
+    private bool CanLoadMore => _hasMorePages && !_loading && !_loadingMore;
+
+    private bool ShouldShowLoadMore => _hasMorePages || _loadingMore;
     
     private async Task CopyToClipboard(string text)
     {
@@ -2370,6 +2400,7 @@
 
         _loading = true;
         _loadingMore = false;
+        _tokensLimit = LatestPageSize;
 
         var query = (_searchQuery ?? string.Empty).Trim();
 
@@ -2397,6 +2428,7 @@
 
         var requestCt = BeginNewRequest();
         _loadingMore = true;
+        _tokensLimit += LatestPageSize;
 
         try
         {
@@ -2447,7 +2479,7 @@
 
         _activeQuery = normalizedQuery;
         _searchPageIndex = safePageIndex;
-        _hasMoreSearchPages = isSearchMode && safePageIndex < SearchMaxPages && tokenDtos.Count >= pageSize;
+        _hasMorePages = tokenDtos.Count >= pageSize;
     }
 
     private static async Task<List<LatestToken>> EnrichTokensWithLimitedConcurrencyAsync(

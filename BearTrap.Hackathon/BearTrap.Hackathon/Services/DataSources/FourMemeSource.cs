@@ -45,7 +45,7 @@ public sealed class FourMemeSource : IFourMemeMainListSource
 
         var safePageIndex = Math.Max(1, pageIndex);
         var safePageSize = isSearchMode
-            ? Math.Clamp(pageSize, 1, 20)
+            ? Math.Clamp(pageSize, 1, 10)
             : Math.Max(1, pageSize);
 
         if (isSearchMode)
