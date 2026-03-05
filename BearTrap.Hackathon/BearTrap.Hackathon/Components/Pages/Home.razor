@@ -50,6 +50,16 @@
                            @bind="_searchQuery"
                            @bind:event="oninput"
                            @onkeydown="OnSearchInputKeyDown" />
+                    @if (!string.IsNullOrWhiteSpace(_searchQuery))
+                    {
+                        <button type="button"
+                                class="search-clear"
+                                title="Clear search"
+                                aria-label="Clear search"
+                                @onclick="ClearSearchAsync">
+                            ✕
+                        </button>
+                    }
                     <button type="button"
                             class="search-trigger"
                             title="Search"
@@ -704,7 +714,7 @@
         height: 46px;
         border-radius: 14px;
         border: 1px solid var(--bt-border-soft);
-        padding: 0 52px 0 18px;
+        padding: 0 88px 0 18px;
         font-size: 0.9375rem;
         background: rgba(255,250,240,0.90);
         box-shadow: 0 6px 18px rgba(20,17,12,0.08);
@@ -722,6 +732,32 @@
         box-shadow: 0 6px 20px rgba(20,17,12,0.10), 0 0 0 4px rgba(242,193,78,0.28);
         background: var(--bt-surface-0);
         transform: translateY(-1px);
+    }
+
+    .search-clear {
+        position: absolute;
+        right: 46px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 24px;
+        height: 24px;
+        border: none;
+        border-radius: 50%;
+        background: transparent;
+        color: var(--bt-ink-2);
+        font-size: 14px;
+        line-height: 1;
+        cursor: pointer;
+        opacity: 0.65;
+        transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+    }
+
+    .search-clear:hover,
+    .search-clear:focus-visible {
+        opacity: 1;
+        color: var(--bt-ink-0);
+        background: rgba(255,250,240,0.75);
+        outline: none;
     }
 
     .search-note {
@@ -2250,6 +2286,12 @@
 
     private Task SearchAsync()
     {
+        return LoadFirstPageAsync();
+    }
+
+    private Task ClearSearchAsync()
+    {
+        _searchQuery = string.Empty;
         return LoadFirstPageAsync();
     }
 
