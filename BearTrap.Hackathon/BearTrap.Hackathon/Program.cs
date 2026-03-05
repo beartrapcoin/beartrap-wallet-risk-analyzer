@@ -207,7 +207,7 @@ using (var scope = app.Services.CreateScope())
 
         // Safety net for environments with inconsistent migration history.
         // Ensures IMAGE_REUSED queries won't fail with "no such column: ImageKey".
-        EnsureSqliteImageKeyColumn(db, logger);
+        EnsureSqliteTokenSnapshotMetadataColumns(db, logger);
         
         // Verify tables exist
         var canConnect = db.Database.CanConnect();
@@ -231,7 +231,7 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-static void EnsureSqliteImageKeyColumn(AppDbContext db, ILogger logger)
+static void EnsureSqliteTokenSnapshotMetadataColumns(AppDbContext db, ILogger logger)
 {
     if (!db.Database.IsSqlite())
     {
@@ -248,15 +248,18 @@ static void EnsureSqliteImageKeyColumn(AppDbContext db, ILogger logger)
             connection.Open();
         }
 
-        if (SqliteColumnExists(connection, "TokenSnapshots", "ImageKey"))
-        {
-            return;
-        }
+        EnsureSqliteColumn(db, connection, logger, "ImageKey");
+        EnsureSqliteColumn(db, connection, logger, "WebUrl");
+        EnsureSqliteColumn(db, connection, logger, "TelegramUrl");
+        EnsureSqliteColumn(db, connection, logger, "TwitterUrl");
+        EnsureSqliteColumn(db, connection, logger, "Description");
+        EnsureSqliteColumn(db, connection, logger, "SnapshotCount");
+        EnsureSqliteColumn(db, connection, logger, "LastObservedAt");
+        EnsureSqliteColumn(db, connection, logger, "ImageChangeCount24h");
+        EnsureSqliteColumn(db, connection, logger, "ImageChangeWindowStartedAt");
 
-        logger.LogWarning("Column TokenSnapshots.ImageKey is missing. Applying startup self-heal schema patch.");
-        db.Database.ExecuteSqlRaw("ALTER TABLE TokenSnapshots ADD COLUMN ImageKey TEXT NULL;");
         db.Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS IX_TokenSnapshots_ImageKey ON TokenSnapshots (ImageKey);");
-        logger.LogInformation("Startup self-heal applied: added TokenSnapshots.ImageKey and index.");
+        logger.LogInformation("Startup self-heal check completed for TokenSnapshots metadata columns.");
     }
     finally
     {
@@ -265,6 +268,32 @@ static void EnsureSqliteImageKeyColumn(AppDbContext db, ILogger logger)
             connection.Close();
         }
     }
+}
+
+static void EnsureSqliteColumn(AppDbContext db, System.Data.Common.DbConnection connection, ILogger logger, string columnName)
+{
+    if (SqliteColumnExists(connection, "TokenSnapshots", columnName))
+    {
+        return;
+    }
+
+    logger.LogWarning("Column TokenSnapshots.{ColumnName} is missing. Applying startup self-heal schema patch.", columnName);
+
+    var alterSql = columnName switch
+    {
+        "ImageKey" => "ALTER TABLE TokenSnapshots ADD COLUMN ImageKey TEXT NULL;",
+        "WebUrl" => "ALTER TABLE TokenSnapshots ADD COLUMN WebUrl TEXT NULL;",
+        "TelegramUrl" => "ALTER TABLE TokenSnapshots ADD COLUMN TelegramUrl TEXT NULL;",
+        "TwitterUrl" => "ALTER TABLE TokenSnapshots ADD COLUMN TwitterUrl TEXT NULL;",
+        "Description" => "ALTER TABLE TokenSnapshots ADD COLUMN Description TEXT NULL;",
+        "SnapshotCount" => "ALTER TABLE TokenSnapshots ADD COLUMN SnapshotCount INTEGER NOT NULL DEFAULT 0;",
+        "LastObservedAt" => "ALTER TABLE TokenSnapshots ADD COLUMN LastObservedAt TEXT NULL;",
+        "ImageChangeCount24h" => "ALTER TABLE TokenSnapshots ADD COLUMN ImageChangeCount24h INTEGER NOT NULL DEFAULT 0;",
+        "ImageChangeWindowStartedAt" => "ALTER TABLE TokenSnapshots ADD COLUMN ImageChangeWindowStartedAt TEXT NULL;",
+        _ => throw new InvalidOperationException($"Unsupported TokenSnapshots startup self-heal column: {columnName}")
+    };
+
+    db.Database.ExecuteSqlRaw(alterSql);
 }
 
 static bool SqliteColumnExists(System.Data.Common.DbConnection connection, string tableName, string columnName)

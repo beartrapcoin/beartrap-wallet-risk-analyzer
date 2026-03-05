@@ -170,9 +170,8 @@ public sealed class RiskAnalyzer
         foreach (var token in tokenList)
         {
             var imageKey = BuildImageKey(token);
-            var existingSnapshot = await _db.TokenSnapshots.FirstOrDefaultAsync(x => x.Address == token.Address, ct);
 
-            if (existingSnapshot is null)
+            if (!await _db.TokenSnapshots.AnyAsync(x => x.Address == token.Address, ct))
             {
                 var snapshot = new TokenSnapshotEntity
                 {
@@ -181,6 +180,14 @@ public sealed class RiskAnalyzer
                     Symbol = token.Symbol,
                     Creator = token.Creator,
                     ImageKey = imageKey,
+                    WebUrl = NormalizeUrlForCompare(token.WebUrl),
+                    TelegramUrl = NormalizeUrlForCompare(token.TelegramUrl),
+                    TwitterUrl = NormalizeUrlForCompare(token.TwitterUrl),
+                    Description = NormalizeComparableText(GetEffectiveDescription(token)),
+                    SnapshotCount = 0,
+                    LastObservedAt = null,
+                    ImageChangeCount24h = 0,
+                    ImageChangeWindowStartedAt = null,
                     CreatedAt = token.CreatedAt == default ? DateTimeOffset.UtcNow : token.CreatedAt,
                     FirstSeenAt = DateTimeOffset.UtcNow
                 };
@@ -199,17 +206,6 @@ public sealed class RiskAnalyzer
                         throw;
                     }
                 }
-            }
-            else if (!string.IsNullOrWhiteSpace(imageKey) &&
-                     !string.Equals(existingSnapshot.ImageKey, imageKey, StringComparison.Ordinal))
-            {
-                existingSnapshot.ImageKey = imageKey;
-                if (existingSnapshot.FirstSeenAt == default)
-                {
-                    existingSnapshot.FirstSeenAt = DateTimeOffset.UtcNow;
-                }
-
-                await _db.SaveChangesAsync(ct);
             }
         }
 
@@ -292,6 +288,8 @@ public sealed class RiskAnalyzer
         List<RiskFlag> flags,
         CancellationToken ct)
     {
+        var snapshot = await _db.TokenSnapshots.FirstOrDefaultAsync(x => x.Address == token.Address, ct);
+
         // CREATOR_SPAM (+35): Creator has created >= 3 tokens in last 24 hours (database check)
         var since = DateTimeOffset.UtcNow.AddHours(-24);
         var creatorTokens = await _db.TokenSnapshots
@@ -328,7 +326,179 @@ public sealed class RiskAnalyzer
                 15));
         }
 
+        if (snapshot is not null)
+        {
+            AnalyzeSuspiciousMetadataChange(token, snapshot, flags);
+            ApplySnapshotStateUpdate(token, snapshot);
+            await _db.SaveChangesAsync(ct);
+        }
+
         await AnalyzeImageReuseHistoryFlagAsync(token, flags, ct);
+    }
+
+    private void AnalyzeSuspiciousMetadataChange(LatestToken token, TokenSnapshotEntity snapshot, List<RiskFlag> flags)
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        var currentName = NormalizeComparableText(token.Name);
+        var currentSymbol = NormalizeComparableText(token.Symbol);
+        var currentWebUrl = NormalizeUrlForCompare(token.WebUrl);
+        var currentTelegramUrl = NormalizeUrlForCompare(token.TelegramUrl);
+        var currentTwitterUrl = NormalizeUrlForCompare(token.TwitterUrl);
+        var currentDescription = NormalizeComparableText(GetEffectiveDescription(token));
+        var currentImageKey = BuildImageKey(token);
+
+        var previousName = NormalizeComparableText(snapshot.Name);
+        var previousSymbol = NormalizeComparableText(snapshot.Symbol);
+        var previousWebUrl = snapshot.WebUrl;
+        var previousTelegramUrl = snapshot.TelegramUrl;
+        var previousTwitterUrl = snapshot.TwitterUrl;
+        var previousDescription = snapshot.Description;
+        var previousImageKey = snapshot.ImageKey;
+
+        var reasons = new List<string>();
+
+        var nameChanged = !string.IsNullOrWhiteSpace(previousName) &&
+                          !string.Equals(previousName, currentName, StringComparison.Ordinal);
+        if (nameChanged)
+        {
+            reasons.Add("token name changed");
+        }
+
+        var symbolChanged = !string.IsNullOrWhiteSpace(previousSymbol) &&
+                            !string.Equals(previousSymbol, currentSymbol, StringComparison.Ordinal);
+        if (symbolChanged)
+        {
+            reasons.Add("token symbol changed");
+        }
+
+        var withinGraceByAge = now - snapshot.CreatedAt < TimeSpan.FromHours(24);
+        var withinGraceBySnapshots = snapshot.SnapshotCount < 2;
+
+        if (!(nameChanged || symbolChanged) && (withinGraceByAge || withinGraceBySnapshots))
+        {
+            return;
+        }
+
+        var socialsRemoved =
+            TransitionedToEmpty(previousWebUrl, currentWebUrl) ||
+            TransitionedToEmpty(previousTelegramUrl, currentTelegramUrl) ||
+            TransitionedToEmpty(previousTwitterUrl, currentTwitterUrl);
+        if (socialsRemoved)
+        {
+            reasons.Add("social links removed");
+        }
+
+        var socialChangedToSuspicious =
+            SocialChangedToSuspicious(previousWebUrl, currentWebUrl) ||
+            SocialChangedToSuspicious(previousTelegramUrl, currentTelegramUrl) ||
+            SocialChangedToSuspicious(previousTwitterUrl, currentTwitterUrl);
+        if (socialChangedToSuspicious)
+        {
+            reasons.Add("social link changed to suspicious domain");
+        }
+
+        var previousDescriptionLength = string.IsNullOrWhiteSpace(previousDescription) ? 0 : previousDescription.Length;
+        var currentDescriptionLength = string.IsNullOrWhiteSpace(currentDescription) ? 0 : currentDescription.Length;
+        var descriptionShortenedHeavily =
+            previousDescriptionLength >= 12 &&
+            (currentDescriptionLength < 12 || currentDescriptionLength * 2 < previousDescriptionLength);
+
+        if (descriptionShortenedHeavily)
+        {
+            reasons.Add("description shortened significantly");
+        }
+
+        var imageChanged =
+            !string.IsNullOrWhiteSpace(previousImageKey) &&
+            !string.IsNullOrWhiteSpace(currentImageKey) &&
+            !string.Equals(previousImageKey, currentImageKey, StringComparison.Ordinal);
+
+        var imageChangedCustomToCustom =
+            imageChanged &&
+            IsCustomImageKey(previousImageKey) &&
+            IsCustomImageKey(currentImageKey);
+
+        var imageChangeWindowStart = snapshot.ImageChangeWindowStartedAt;
+        var imageChangeCount24h = snapshot.ImageChangeCount24h;
+
+        if (imageChanged)
+        {
+            if (!imageChangeWindowStart.HasValue || now - imageChangeWindowStart.Value > TimeSpan.FromHours(24))
+            {
+                imageChangeWindowStart = now;
+                imageChangeCount24h = 1;
+            }
+            else
+            {
+                imageChangeCount24h++;
+            }
+        }
+
+        var imageChangedMultipleTimesIn24h = imageChangeCount24h >= 2;
+        if (imageChangedCustomToCustom || imageChangedMultipleTimesIn24h)
+        {
+            reasons.Add("image changed suspiciously");
+        }
+
+        if (reasons.Count == 0)
+        {
+            return;
+        }
+
+        AddFlagIfMissing(flags, CreateFlag(MetadataChangedFlagCode, string.Join("; ", reasons)));
+    }
+
+    private void ApplySnapshotStateUpdate(LatestToken token, TokenSnapshotEntity snapshot)
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        var currentName = token.Name?.Trim() ?? string.Empty;
+        var currentSymbol = token.Symbol?.Trim() ?? string.Empty;
+        var currentWebUrl = NormalizeUrlForCompare(token.WebUrl);
+        var currentTelegramUrl = NormalizeUrlForCompare(token.TelegramUrl);
+        var currentTwitterUrl = NormalizeUrlForCompare(token.TwitterUrl);
+        var currentDescription = NormalizeComparableText(GetEffectiveDescription(token));
+        var currentImageKey = BuildImageKey(token);
+
+        var previousImageKey = snapshot.ImageKey;
+        var imageChanged =
+            !string.IsNullOrWhiteSpace(previousImageKey) &&
+            !string.IsNullOrWhiteSpace(currentImageKey) &&
+            !string.Equals(previousImageKey, currentImageKey, StringComparison.Ordinal);
+
+        if (imageChanged)
+        {
+            if (!snapshot.ImageChangeWindowStartedAt.HasValue || now - snapshot.ImageChangeWindowStartedAt.Value > TimeSpan.FromHours(24))
+            {
+                snapshot.ImageChangeWindowStartedAt = now;
+                snapshot.ImageChangeCount24h = 1;
+            }
+            else
+            {
+                snapshot.ImageChangeCount24h += 1;
+            }
+        }
+        else if (snapshot.ImageChangeWindowStartedAt.HasValue && now - snapshot.ImageChangeWindowStartedAt.Value > TimeSpan.FromHours(24))
+        {
+            snapshot.ImageChangeWindowStartedAt = null;
+            snapshot.ImageChangeCount24h = 0;
+        }
+
+        snapshot.Name = currentName;
+        snapshot.Symbol = currentSymbol;
+        snapshot.WebUrl = currentWebUrl;
+        snapshot.TelegramUrl = currentTelegramUrl;
+        snapshot.TwitterUrl = currentTwitterUrl;
+        snapshot.Description = currentDescription;
+        snapshot.ImageKey = currentImageKey;
+        snapshot.LastObservedAt = now;
+        snapshot.SnapshotCount += 1;
+
+        if (snapshot.FirstSeenAt == default)
+        {
+            snapshot.FirstSeenAt = now;
+        }
     }
 
     private async Task AnalyzeImageReuseHistoryFlagAsync(LatestToken token, List<RiskFlag> flags, CancellationToken ct)
@@ -451,14 +621,6 @@ public sealed class RiskAnalyzer
             AddFlagIfMissing(flags, CreateFlag(NoSocialsFlagCode, "No website, Telegram or Twitter provided."));
         }
 
-        if (token.ModifiedAt.HasValue)
-        {
-            var minutesDiff = (token.ModifiedAt.Value - token.CreatedAt).TotalMinutes;
-            if (minutesDiff >= 60 && !flags.Any(flag => flag.Code == MetadataChangedFlagCode))
-            {
-                AddFlagIfMissing(flags, CreateFlag(MetadataChangedFlagCode, $"Metadata modified {(int)Math.Round(minutesDiff)} minutes after creation."));
-            }
-        }
     }
 
     private async Task AnalyzeDexScreenerFlagsAsync(LatestToken token, List<RiskFlag> flags, CancellationToken ct)
@@ -787,6 +949,90 @@ public sealed class RiskAnalyzer
         }
 
         return $"url:{withoutQuery}";
+    }
+
+    private static string NormalizeComparableText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var collapsed = Regex.Replace(value.Trim(), @"\s+", " ", SuspiciousRegexOptions);
+        return collapsed.ToLowerInvariant();
+    }
+
+    private static string? NormalizeUrlForCompare(string? rawUrl)
+    {
+        if (string.IsNullOrWhiteSpace(rawUrl))
+        {
+            return null;
+        }
+
+        var cleaned = rawUrl.Trim().TrimEnd('.', ',', ';', ':', '!', '?', ')', ']', '}');
+        if (cleaned.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
+        {
+            cleaned = $"https://{cleaned}";
+        }
+
+        if (!Uri.TryCreate(cleaned, UriKind.Absolute, out var uri))
+        {
+            return null;
+        }
+
+        var host = uri.Host.Trim().ToLowerInvariant();
+        var path = uri.AbsolutePath.Trim().TrimEnd('/').ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            path = "/";
+        }
+
+        return $"https://{host}{path}";
+    }
+
+    private static bool TransitionedToEmpty(string? previousValue, string? currentValue)
+        => !string.IsNullOrWhiteSpace(previousValue) && string.IsNullOrWhiteSpace(currentValue);
+
+    private static bool SocialChangedToSuspicious(string? previousValue, string? currentValue)
+    {
+        if (string.IsNullOrWhiteSpace(previousValue) || string.IsNullOrWhiteSpace(currentValue))
+        {
+            return false;
+        }
+
+        if (string.Equals(previousValue, currentValue, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var previousDomain = ExtractNormalizedDomain(previousValue);
+        var currentDomain = ExtractNormalizedDomain(currentValue);
+
+        if (string.IsNullOrWhiteSpace(previousDomain) || string.IsNullOrWhiteSpace(currentDomain))
+        {
+            return false;
+        }
+
+        var previousIsSocial = IsIgnoredSocialDomain(previousDomain);
+        var currentIsSocial = IsIgnoredSocialDomain(currentDomain);
+
+        if (previousIsSocial && !currentIsSocial)
+        {
+            return true;
+        }
+
+        return IsSuspiciousDomain(currentDomain);
+    }
+
+    private static bool IsCustomImageKey(string? imageKey)
+    {
+        if (string.IsNullOrWhiteSpace(imageKey))
+        {
+            return false;
+        }
+
+        return !imageKey.Contains("placeholder", StringComparison.OrdinalIgnoreCase) &&
+               !imageKey.Contains("default", StringComparison.OrdinalIgnoreCase);
     }
 
     private static int CountSuspiciousSpecialChars(string text)

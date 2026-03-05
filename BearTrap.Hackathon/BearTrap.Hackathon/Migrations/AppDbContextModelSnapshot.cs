@@ -68,7 +68,19 @@ namespace BearTrap.Hackathon.Migrations
                     b.Property<DateTimeOffset>("FirstSeenAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Description")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ImageChangeCount24h")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset?>("ImageChangeWindowStartedAt")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("ImageKey")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("LastObservedAt")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Name")
@@ -77,6 +89,18 @@ namespace BearTrap.Hackathon.Migrations
 
                     b.Property<string>("Symbol")
                         .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SnapshotCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("TelegramUrl")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TwitterUrl")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("WebUrl")
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");

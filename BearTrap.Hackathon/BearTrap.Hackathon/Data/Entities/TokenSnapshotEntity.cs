@@ -8,6 +8,14 @@
         public string Symbol { get; set; } = "";
         public string Creator { get; set; } = "";
         public string? ImageKey { get; set; }
+        public string? WebUrl { get; set; }
+        public string? TelegramUrl { get; set; }
+        public string? TwitterUrl { get; set; }
+        public string? Description { get; set; }
+        public int SnapshotCount { get; set; }
+        public DateTimeOffset? LastObservedAt { get; set; }
+        public int ImageChangeCount24h { get; set; }
+        public DateTimeOffset? ImageChangeWindowStartedAt { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
         public DateTimeOffset FirstSeenAt { get; set; }
     }
