@@ -141,7 +141,7 @@
                             <div class="@GetTokenCardCssClass(row.Token.Address)"
                                 id="@GetTokenCardId(row.Token.Address)"
                                 data-token-card="true"
-                                data-token-key="@NormalizeTokenKey(row.Token.Address)">
+                                data-token-key="@row.Token.Address">
                             <!-- Top Section: Avatar + Metadata | Gauge + Risk Pill -->
                             <div class="tcard-top token-header">
                                 <div class="tleft">
@@ -2367,6 +2367,7 @@
     private bool _cardSelectionRegistered;
     private DotNetObjectReference<Home>? _selfReference;
     private readonly HashSet<string> _selectedTokenCardIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (LatestToken Token, RiskReport Report)> _selectedRowsByAddress = new(StringComparer.OrdinalIgnoreCase);
     private bool _selectedExportInProgress;
     private string? _selectedExportError;
     
@@ -2384,7 +2385,31 @@
     private const int SearchPageSize = 10;
     private const int EnrichmentMaxConcurrency = 4;
     
-    private List<(LatestToken Token, RiskReport Report)> FilteredResults => _results;
+    private List<(LatestToken Token, RiskReport Report)> FilteredResults
+    {
+        get
+        {
+            if (_selectedRowsByAddress.Count == 0)
+            {
+                return _results;
+            }
+
+            var merged = new List<(LatestToken Token, RiskReport Report)>(_results);
+            var visibleKeys = _results
+                .Select(row => NormalizeTokenKey(row.Token.Address))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var entry in _selectedRowsByAddress)
+            {
+                if (!visibleKeys.Contains(entry.Key))
+                {
+                    merged.Add(entry.Value);
+                }
+            }
+
+            return merged;
+        }
+    }
 
     private bool IsSearchMode => !string.IsNullOrWhiteSpace(_activeQuery);
 
@@ -2399,8 +2424,7 @@
         !_selectedExportInProgress &&
         _selectedTokenCardIds.Count > 0;
 
-    private int SelectedCardCount => _results.Count(row =>
-        _selectedTokenCardIds.Contains(NormalizeTokenKey(row.Token.Address)));
+    private int SelectedCardCount => _selectedTokenCardIds.Count;
     
     private async Task CopyToClipboard(string text)
     {
@@ -2435,6 +2459,17 @@
         return isSelected ? "tcard is-selected" : "tcard";
     }
 
+    private void CacheSelectedRow((LatestToken Token, RiskReport Report) row)
+    {
+        var key = NormalizeTokenKey(row.Token.Address);
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return;
+        }
+
+        _selectedRowsByAddress[key] = row;
+    }
+
     [Microsoft.JSInterop.JSInvokable]
     public Task ToggleTokenCardSelection(string tokenKey)
     {
@@ -2447,6 +2482,17 @@
         if (!_selectedTokenCardIds.Add(normalized))
         {
             _selectedTokenCardIds.Remove(normalized);
+            _selectedRowsByAddress.Remove(normalized);
+        }
+        else
+        {
+            var selectedRow = _results.FirstOrDefault(row =>
+                string.Equals(NormalizeTokenKey(row.Token.Address), normalized, StringComparison.OrdinalIgnoreCase));
+
+            if (!string.IsNullOrWhiteSpace(selectedRow.Token.Address))
+            {
+                CacheSelectedRow(selectedRow);
+            }
         }
 
         _selectedExportError = null;
@@ -2466,8 +2512,27 @@
 
         try
         {
-            var orderedRows = _results
-                .Where(row => _selectedTokenCardIds.Contains(NormalizeTokenKey(row.Token.Address)))
+            var orderedRows = _selectedTokenCardIds
+                .Select(addressKey =>
+                {
+                    if (_selectedRowsByAddress.TryGetValue(addressKey, out var selectedRow))
+                    {
+                        return (hasValue: true, row: selectedRow);
+                    }
+
+                    var fallbackRow = _results.FirstOrDefault(row =>
+                        string.Equals(NormalizeTokenKey(row.Token.Address), addressKey, StringComparison.OrdinalIgnoreCase));
+
+                    if (!string.IsNullOrWhiteSpace(fallbackRow.Token.Address))
+                    {
+                        CacheSelectedRow(fallbackRow);
+                        return (hasValue: true, row: fallbackRow);
+                    }
+
+                    return (hasValue: false, row: default((LatestToken Token, RiskReport Report)));
+                })
+                .Where(item => item.hasValue)
+                .Select(item => item.row)
                 .ToList();
 
             if (orderedRows.Count == 0)
@@ -2654,10 +2719,14 @@
             _results = analyzedRows;
         }
 
-        var visibleKeys = _results
-            .Select(row => NormalizeTokenKey(row.Token.Address))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        _selectedTokenCardIds.RemoveWhere(key => !visibleKeys.Contains(key));
+        foreach (var row in analyzedRows)
+        {
+            var key = NormalizeTokenKey(row.Token.Address);
+            if (_selectedTokenCardIds.Contains(key))
+            {
+                _selectedRowsByAddress[key] = row;
+            }
+        }
 
         _activeQuery = normalizedQuery;
         _searchPageIndex = safePageIndex;
