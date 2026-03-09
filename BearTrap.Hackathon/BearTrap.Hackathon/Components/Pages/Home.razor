@@ -24,6 +24,25 @@
                 <span class="subtitle-inline">
                     <span>Hackathon Edition</span>
                     <span class="edition-badge">Four.Meme-listed Tokens</span>
+                    <button type="button"
+                            class="header-export-btn"
+                            disabled="@(!CanExportSelectedCards)"
+                            aria-busy="@_selectedExportInProgress"
+                            @onclick="ExportSelectedCardsToPdfAsync">
+                        @if (_selectedExportInProgress)
+                        {
+                            <span>Generating PDF...</span>
+                        }
+                        else
+                        {
+                            <span>Save selected to PDF</span>
+                        }
+                    </button>
+                    <span class="selected-counter">(@SelectedCardCount selected)</span>
+                    @if (!string.IsNullOrWhiteSpace(_selectedExportError))
+                    {
+                        <span class="selected-export-error">@_selectedExportError</span>
+                    }
                 </span>
             </div>
             
@@ -119,7 +138,10 @@
                 <div class="token-grid">
                     @foreach (var row in FilteredResults)
                     {
-                        <div class="tcard">
+                            <div class="@GetTokenCardCssClass(row.Token.Address)"
+                                id="@GetTokenCardId(row.Token.Address)"
+                                data-token-card="true"
+                                data-token-key="@NormalizeTokenKey(row.Token.Address)">
                             <!-- Top Section: Avatar + Metadata | Gauge + Risk Pill -->
                             <div class="tcard-top token-header">
                                 <div class="tleft">
@@ -276,7 +298,7 @@
                                     }
                                 </div>
                             }
-                            
+
                             <!-- Bottom Strip: Flags -->
                             <div class="tcard-bottom" id="@GetFlagsContainerId(row.Token.Address)" data-flags-token-key="@NormalizeTokenKey(row.Token.Address)">
                                 @{
@@ -526,6 +548,47 @@
         margin-top: 6px;
         display: flex;
         flex-wrap: wrap;
+    }
+
+    .header-export-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 4px 11px;
+        border-radius: 8px;
+        border: 1px solid rgba(20,17,12,0.24);
+        background: rgba(255,250,240,0.85);
+        color: var(--bt-ink-1);
+        font-size: 0.72rem;
+        font-weight: 700;
+        line-height: 1.1;
+        cursor: pointer;
+        transition: all 0.15s ease;
+    }
+
+    .header-export-btn:hover:not(:disabled),
+    .header-export-btn:focus-visible:not(:disabled) {
+        border-color: rgba(201,146,26,0.56);
+        background: rgba(242,193,78,0.22);
+        color: var(--bt-ink-0);
+        outline: none;
+    }
+
+    .header-export-btn:disabled {
+        opacity: 0.68;
+        cursor: default;
+    }
+
+    .selected-counter {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--bt-ink-2);
+    }
+
+    .selected-export-error {
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: #a74431;
     }
 
     .token-link-btn {
@@ -908,6 +971,7 @@
         padding: 12px;
         transition: all 0.25s ease;
         border: 1px solid var(--bt-border);
+        box-sizing: border-box;
         display: flex;
         flex-direction: column;
         gap: 8px;
@@ -934,6 +998,17 @@
         box-shadow: 0 18px 48px rgba(20,17,12,0.18);
         transform: translateY(-2px);
         border-color: rgba(201,146,26,0.30);
+    }
+
+    .tcard.is-selected {
+        border-color: rgba(201,146,26,0.62);
+        box-shadow: 0 20px 52px rgba(20,17,12,0.22), 0 0 0 3px rgba(201,146,26,0.40);
+    }
+
+    .tcard.is-selected:hover {
+        border-color: rgba(201,146,26,0.70);
+        box-shadow: 0 22px 56px rgba(20,17,12,0.24), 0 0 0 3px rgba(201,146,26,0.46);
+        transform: translateY(-2px);
     }
     
     /* ========================================
@@ -2289,6 +2364,11 @@
     private bool _loading = true;
     private List<(LatestToken Token, RiskReport Report)> _results = new();
     private bool _flagsOverflowRegistered;
+    private bool _cardSelectionRegistered;
+    private DotNetObjectReference<Home>? _selfReference;
+    private readonly HashSet<string> _selectedTokenCardIds = new(StringComparer.OrdinalIgnoreCase);
+    private bool _selectedExportInProgress;
+    private string? _selectedExportError;
     
     // Search state
     private string _searchQuery = string.Empty;
@@ -2314,6 +2394,13 @@
     private bool CanLoadMore => _hasMorePages && !_loading && !_loadingMore;
 
     private bool ShouldShowLoadMore => _hasMorePages || _loadingMore;
+
+    private bool CanExportSelectedCards =>
+        !_selectedExportInProgress &&
+        _selectedTokenCardIds.Count > 0;
+
+    private int SelectedCardCount => _results.Count(row =>
+        _selectedTokenCardIds.Contains(NormalizeTokenKey(row.Token.Address)));
     
     private async Task CopyToClipboard(string text)
     {
@@ -2331,7 +2418,97 @@
 
         return $"flags-{new string(safeChars)}";
     }
-    
+
+    private static string GetTokenCardId(string tokenAddress)
+    {
+        var safeChars = tokenAddress
+            .Select(ch => char.IsLetterOrDigit(ch) ? char.ToLowerInvariant(ch) : '-')
+            .ToArray();
+
+        return $"token-card-{new string(safeChars)}";
+    }
+
+    private string GetTokenCardCssClass(string tokenAddress)
+    {
+        var key = NormalizeTokenKey(tokenAddress);
+        var isSelected = _selectedTokenCardIds.Contains(key);
+        return isSelected ? "tcard is-selected" : "tcard";
+    }
+
+    [Microsoft.JSInterop.JSInvokable]
+    public Task ToggleTokenCardSelection(string tokenKey)
+    {
+        if (string.IsNullOrWhiteSpace(tokenKey))
+        {
+            return Task.CompletedTask;
+        }
+
+        var normalized = NormalizeTokenKey(tokenKey);
+        if (!_selectedTokenCardIds.Add(normalized))
+        {
+            _selectedTokenCardIds.Remove(normalized);
+        }
+
+        _selectedExportError = null;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ExportSelectedCardsToPdfAsync()
+    {
+        if (!CanExportSelectedCards)
+        {
+            return;
+        }
+
+        _selectedExportInProgress = true;
+        _selectedExportError = null;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var orderedRows = _results
+                .Where(row => _selectedTokenCardIds.Contains(NormalizeTokenKey(row.Token.Address)))
+                .ToList();
+
+            if (orderedRows.Count == 0)
+            {
+                return;
+            }
+
+            var cardSelectors = orderedRows
+                .Select(row => $"#{GetTokenCardId(row.Token.Address)}")
+                .ToList();
+
+            var tokenMetadata = orderedRows
+                .Select(row => new
+                {
+                    Name = row.Token.Name,
+                    Symbol = row.Token.Symbol,
+                    Address = row.Token.Address
+                })
+                .ToList();
+
+            Console.WriteLine($"[token-pdf] Selected card IDs: {string.Join(", ", _selectedTokenCardIds)}");
+            Console.WriteLine($"[token-pdf] Export order selectors: {string.Join(", ", cardSelectors)}");
+
+            await JSRuntime.InvokeVoidAsync(
+                "tokenCardPdfExporter.exportSelectedTokenCardsToPdf",
+                cardSelectors,
+                "selected-tokens.pdf",
+                tokenMetadata);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[token-pdf] Selected export failed: {ex}");
+            _selectedExportError = "PDF export failed. Try again.";
+        }
+        finally
+        {
+            _selectedExportInProgress = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
     protected override async Task OnInitializedAsync()
     {
         await Task.CompletedTask;
@@ -2477,6 +2654,11 @@
             _results = analyzedRows;
         }
 
+        var visibleKeys = _results
+            .Select(row => NormalizeTokenKey(row.Token.Address))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _selectedTokenCardIds.RemoveWhere(key => !visibleKeys.Contains(key));
+
         _activeQuery = normalizedQuery;
         _searchPageIndex = safePageIndex;
         _hasMorePages = tokenDtos.Count >= pageSize;
@@ -2539,6 +2721,13 @@
             _flagsOverflowRegistered = true;
         }
 
+        if (!_cardSelectionRegistered)
+        {
+            _selfReference ??= DotNetObjectReference.Create(this);
+            await JSRuntime.InvokeVoidAsync("tokenCardPdfExporter.registerCardSelection", _selfReference);
+            _cardSelectionRegistered = true;
+        }
+
         await TryRecalculateRiskFlagsAsync();
     }
 
@@ -2561,11 +2750,15 @@
 
         try
         {
+            await JSRuntime.InvokeVoidAsync("tokenCardPdfExporter.disposeSelection");
             await JSRuntime.InvokeVoidAsync("flagsOverflow.dispose");
         }
         catch
         {
         }
+
+        _selfReference?.Dispose();
+        _selfReference = null;
     }
 
 }

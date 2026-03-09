@@ -164,6 +164,53 @@ app.UseAntiforgery();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
+app.MapGet("/api/image-proxy", async Task<IResult> (
+    string? url,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(url) ||
+        !Uri.TryCreate(url, UriKind.Absolute, out var parsedUrl) ||
+        (parsedUrl.Scheme != Uri.UriSchemeHttp && parsedUrl.Scheme != Uri.UriSchemeHttps))
+    {
+        return Results.BadRequest("Invalid image URL.");
+    }
+
+    try
+    {
+        var client = httpClientFactory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Get, parsedUrl);
+        request.Headers.TryAddWithoutValidation("accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8");
+        request.Headers.TryAddWithoutValidation("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
+        request.Headers.Referrer = new Uri("https://four.meme/");
+
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            return Results.StatusCode((int)response.StatusCode);
+        }
+
+        var mediaType = response.Content.Headers.ContentType?.MediaType;
+        if (string.IsNullOrWhiteSpace(mediaType) ||
+            !mediaType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+        {
+            return Results.BadRequest("URL does not point to an image.");
+        }
+
+        var imageBytes = await response.Content.ReadAsByteArrayAsync(ct);
+        return Results.File(imageBytes, mediaType);
+    }
+    catch (OperationCanceledException)
+    {
+        return Results.StatusCode(StatusCodes.Status408RequestTimeout);
+    }
+    catch
+    {
+        return Results.StatusCode(StatusCodes.Status502BadGateway);
+    }
+});
+
 // ===== Database Migration =====
 // Apply pending migrations on startup (creates database if it doesn't exist)
 using (var scope = app.Services.CreateScope())
