@@ -492,6 +492,23 @@
         pdf.rect(0, 0, A4_WIDTH_MM, A4_HEIGHT_MM, "F");
     }
 
+    function drawPdfHeader(pdf) {
+        const centerX = A4_WIDTH_MM / 2;
+
+        pdf.setTextColor(33, 33, 33);
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(22);
+        pdf.text("BearTrap Token Risk Analysis", centerX, 14, { align: "center" });
+
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(11);
+        pdf.text("Hackathon Edition · Four.Meme Listed Tokens", centerX, 21, { align: "center" });
+
+        pdf.setDrawColor(180, 170, 150);
+        pdf.setLineWidth(0.2);
+        pdf.line(PAGE_MARGIN_MM, 26, A4_WIDTH_MM - PAGE_MARGIN_MM, 26);
+    }
+
     function addCanvasToPdf(pdf, canvas, pdfBackgroundRgb) {
         const maxWidth = A4_WIDTH_MM - (PAGE_MARGIN_MM * 2);
         const maxHeight = A4_HEIGHT_MM - (PAGE_MARGIN_MM * 2);
@@ -589,10 +606,11 @@
 
         let exportedCards = 0;
         let pageNumber = 1;
-        let currentY = topMargin;
+        let currentY = 40;
 
         console.info(`[token-pdf] Total selected cards to export: ${cardSelectors.length}`);
         fillPdfPageBackground(pdf, backgroundContext.resolvedRgb);
+        drawPdfHeader(pdf);
 
         for (let i = 0; i < cardSelectors.length; i += 1) {
             const selector = cardSelectors[i];

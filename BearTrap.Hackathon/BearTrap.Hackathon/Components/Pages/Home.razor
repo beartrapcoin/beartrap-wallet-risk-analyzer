@@ -38,10 +38,28 @@
                             <span>Save selected to PDF</span>
                         }
                     </button>
+                    <button type="button"
+                            class="header-export-btn"
+                            disabled="@(!CanCopyShareText)"
+                            aria-busy="@_shareCopyInProgress"
+                            @onclick="CopyShareTextAsync">
+                        @if (_shareCopyInProgress)
+                        {
+                            <span>Copying...</span>
+                        }
+                        else
+                        {
+                            <span>Copy share text (@SelectedCardCount)</span>
+                        }
+                    </button>
                     <span class="selected-counter">(@SelectedCardCount selected)</span>
                     @if (!string.IsNullOrWhiteSpace(_selectedExportError))
                     {
                         <span class="selected-export-error">@_selectedExportError</span>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(_shareCopyMessage))
+                    {
+                        <span class="selected-share-info">@_shareCopyMessage</span>
                     }
                 </span>
             </div>
@@ -589,6 +607,12 @@
         font-size: 0.72rem;
         font-weight: 600;
         color: #a74431;
+    }
+
+    .selected-share-info {
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: #2e7d57;
     }
 
     .token-link-btn {
@@ -2368,8 +2392,12 @@
     private DotNetObjectReference<Home>? _selfReference;
     private readonly HashSet<string> _selectedTokenCardIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, (LatestToken Token, RiskReport Report)> _selectedRowsByAddress = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<string> _selectedTokenCardOrder = new();
     private bool _selectedExportInProgress;
     private string? _selectedExportError;
+    private bool _shareCopyInProgress;
+    private string? _shareCopyMessage;
+    private CancellationTokenSource? _shareCopyMessageCts;
     
     // Search state
     private string _searchQuery = string.Empty;
@@ -2424,6 +2452,10 @@
         !_selectedExportInProgress &&
         _selectedTokenCardIds.Count > 0;
 
+    private bool CanCopyShareText =>
+        !_shareCopyInProgress &&
+        _selectedTokenCardIds.Count > 0;
+
     private int SelectedCardCount => _selectedTokenCardIds.Count;
     
     private async Task CopyToClipboard(string text)
@@ -2470,6 +2502,126 @@
         _selectedRowsByAddress[key] = row;
     }
 
+    private List<(LatestToken Token, RiskReport Report)> GetOrderedSelectedRows()
+    {
+        var orderedKeys = _selectedTokenCardOrder
+            .Where(key => _selectedTokenCardIds.Contains(key))
+            .ToList();
+
+        foreach (var key in _selectedTokenCardIds)
+        {
+            if (!orderedKeys.Contains(key, StringComparer.OrdinalIgnoreCase))
+            {
+                orderedKeys.Add(key);
+            }
+        }
+
+        var orderedRows = orderedKeys
+            .Select(addressKey =>
+            {
+                if (_selectedRowsByAddress.TryGetValue(addressKey, out var selectedRow))
+                {
+                    return (hasValue: true, row: selectedRow);
+                }
+
+                var fallbackRow = _results.FirstOrDefault(row =>
+                    string.Equals(NormalizeTokenKey(row.Token.Address), addressKey, StringComparison.OrdinalIgnoreCase));
+
+                if (!string.IsNullOrWhiteSpace(fallbackRow.Token.Address))
+                {
+                    CacheSelectedRow(fallbackRow);
+                    return (hasValue: true, row: fallbackRow);
+                }
+
+                return (hasValue: false, row: default((LatestToken Token, RiskReport Report)));
+            })
+            .Where(item => item.hasValue)
+            .Select(item => item.row)
+            .ToList();
+
+        return orderedRows;
+    }
+
+    private async Task ShowShareCopyMessageAsync(string message)
+    {
+        _shareCopyMessageCts?.Cancel();
+        _shareCopyMessageCts?.Dispose();
+        _shareCopyMessageCts = new CancellationTokenSource();
+        var ct = _shareCopyMessageCts.Token;
+
+        _shareCopyMessage = message;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            await Task.Delay(2200, ct);
+            _shareCopyMessage = null;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private async Task CopyShareTextAsync()
+    {
+        if (!CanCopyShareText)
+        {
+            return;
+        }
+
+        _shareCopyInProgress = true;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var orderedRows = GetOrderedSelectedRows();
+            if (orderedRows.Count == 0)
+            {
+                return;
+            }
+
+            var tokenBlocks = orderedRows
+                .Select(row =>
+                {
+                    var name = string.IsNullOrWhiteSpace(row.Token.Name) ? "Unknown" : row.Token.Name.Trim();
+                    var address = (row.Token.Address ?? string.Empty).Trim();
+                    var riskEmoji = GetRiskEmoji(row.Report.Score);
+
+                    return $"{name} — {riskEmoji} Risk {row.Report.Score}{Environment.NewLine}https://four.meme/token/{address}";
+                })
+                .ToList();
+
+            var shareText = string.Join(Environment.NewLine + Environment.NewLine, tokenBlocks);
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", shareText);
+            await ShowShareCopyMessageAsync($"Copied {orderedRows.Count} tokens to clipboard");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[share-copy] Failed to copy share text: {ex}");
+        }
+        finally
+        {
+            _shareCopyInProgress = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private static string GetRiskEmoji(int riskScore)
+    {
+        if (riskScore < 25)
+        {
+            return "🟢";
+        }
+
+        if (riskScore < 50)
+        {
+            return "🟡";
+        }
+
+        return "🔴";
+    }
+
     [Microsoft.JSInterop.JSInvokable]
     public Task ToggleTokenCardSelection(string tokenKey)
     {
@@ -2483,9 +2635,15 @@
         {
             _selectedTokenCardIds.Remove(normalized);
             _selectedRowsByAddress.Remove(normalized);
+            _selectedTokenCardOrder.RemoveAll(x => string.Equals(x, normalized, StringComparison.OrdinalIgnoreCase));
         }
         else
         {
+            if (!_selectedTokenCardOrder.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+            {
+                _selectedTokenCardOrder.Add(normalized);
+            }
+
             var selectedRow = _results.FirstOrDefault(row =>
                 string.Equals(NormalizeTokenKey(row.Token.Address), normalized, StringComparison.OrdinalIgnoreCase));
 
@@ -2512,28 +2670,7 @@
 
         try
         {
-            var orderedRows = _selectedTokenCardIds
-                .Select(addressKey =>
-                {
-                    if (_selectedRowsByAddress.TryGetValue(addressKey, out var selectedRow))
-                    {
-                        return (hasValue: true, row: selectedRow);
-                    }
-
-                    var fallbackRow = _results.FirstOrDefault(row =>
-                        string.Equals(NormalizeTokenKey(row.Token.Address), addressKey, StringComparison.OrdinalIgnoreCase));
-
-                    if (!string.IsNullOrWhiteSpace(fallbackRow.Token.Address))
-                    {
-                        CacheSelectedRow(fallbackRow);
-                        return (hasValue: true, row: fallbackRow);
-                    }
-
-                    return (hasValue: false, row: default((LatestToken Token, RiskReport Report)));
-                })
-                .Where(item => item.hasValue)
-                .Select(item => item.row)
-                .ToList();
+            var orderedRows = GetOrderedSelectedRows();
 
             if (orderedRows.Count == 0)
             {
@@ -2816,6 +2953,8 @@
     {
         _requestCts?.Cancel();
         _requestCts?.Dispose();
+        _shareCopyMessageCts?.Cancel();
+        _shareCopyMessageCts?.Dispose();
 
         try
         {
